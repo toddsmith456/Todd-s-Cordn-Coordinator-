@@ -107,6 +107,24 @@ cargo run -p cordn-server --features server
 On startup the server prints its public key and configured relays. See
 [`AGENTS.md`](./AGENTS.md) for the locked design decisions.
 
+## Android app
+
+`apps/cordn-coordinator/` packages the same Rust server as a SvelteKit/Tauri
+Android app. The coordinator runs in a dedicated foreground-service process, so
+closing the UI does not stop it. Its stable Nostr identity is protected by
+Android Keystore and its SQLite database lives in app-private no-backup storage.
+
+```bash
+cd apps/cordn-coordinator
+pnpm install
+pnpm check
+pnpm exec tauri android build --debug --apk --target aarch64 --ci
+```
+
+`v*` tags also attach a signed arm64 APK to GitHub Releases. See
+[`apps/cordn-coordinator/README.md`](./apps/cordn-coordinator/README.md) for
+Android setup, signing-secret names, and build commands.
+
 ## Configuration
 
 The server loads `.env` then `.env.local` (first-write-wins per key), then the
@@ -140,8 +158,11 @@ cordn-rs/
   crates/
     cordn-core/              # lib: types, storage, coordinator, mls_parse,
                              #      ratelimit, contracts. Zero network deps.
-    cordn-server/            # bin: depends on cordn-core + contextvm-sdk +
-                             #      rmcp + tokio. The runnable coordinator.
+    cordn-server/            # lib + desktop bin: adapter, ContextVM bindings,
+                             #      and the shared embeddable server runtime.
+  apps/
+    cordn-coordinator/       # SvelteKit/Tauri Android foreground-service app;
+                             #      separate Cargo workspace + lockfile.
   docs/                      # benchmark proposal + results
   references/                # git-ignored reference trees (read-only; dev only)
     cordn/                   # the TS coordinator (parity source of truth)

@@ -36,6 +36,37 @@ jobs:
         with:
           components: clippy
       - run: cargo clippy --locked --features server --all-targets -- -D warnings
+      - run: cargo test --locked -p cordn-server --features server
+
+  # The Android product shell is a separate Cargo workspace, so verify it
+  # explicitly without pulling Tauri/Gradle into the root Rust jobs.
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/cordn-coordinator/pnpm-lock.yaml
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "platforms;android-36" "ndk;27.3.13750724"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-linux-android
+      - working-directory: apps/cordn-coordinator
+        run: pnpm install --frozen-lockfile
+      - working-directory: apps/cordn-coordinator
+        run: pnpm check
+      - working-directory: apps/cordn-coordinator
+        run: pnpm exec tauri android build --debug --apk --target x86_64 --ci
 
   # Guard the declared MSRV (rust-version = "1.88").
   msrv:

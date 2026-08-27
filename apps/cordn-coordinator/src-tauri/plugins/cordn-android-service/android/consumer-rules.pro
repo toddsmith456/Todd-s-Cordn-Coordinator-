@@ -1,0 +1,2 @@
+-keep class org.cordn.coordinator.service.CordnNative { *; }
+-keepclasseswithmembernames class * { native <methods>; }

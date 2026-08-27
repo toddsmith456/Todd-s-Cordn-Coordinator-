@@ -27,7 +27,15 @@ Primary implementation areas (target layout):
   - `methods.rs` — rmcp `#[tool]` glue (`CordnServer`) extracting
     `ClientPubkey` / `OpenStreamWriter` from `RequestContext`
   - `config.rs` — env config (port of `runtimeConfig.ts`)
-  - `main.rs` — bin entrypoint (signer, sqlite/memory storage, transport, banner)
+  - `runtime.rs` — shared signer/storage/transport/server lifecycle used by
+    desktop and embedded Android hosts
+  - `main.rs` — thin desktop entrypoint (env config, banner, process signals)
+- `apps/cordn-coordinator/` — SvelteKit/Tauri Android app in a separate nested
+  Cargo workspace so the root Rust checks do not pull in Tauri/Gradle.
+  - `src/` — static SvelteKit configuration and Start/Stop UI
+  - `src-tauri/plugins/cordn-android-service/` — app-local Kotlin foreground
+    service + Android Keystore + JNI bridge into `cordn-server::runtime`
+  - `src-tauri/gen/android/` — committed Tauri-generated Android project
 - `references/cordn/scripts/gen_key_packages.test.ts` — regenerates the
   `ts-mls` parser fixtures into `crates/cordn-core/tests/fixtures/`
 
@@ -80,9 +88,12 @@ These are settled. Do not relitigate them without an explicit change request.
    fixtures (key packages, welcomes, group messages) in Rust unit/integration
    tests. It also cross-validates the minimal runtime parser.
 
-4. **Two-crate workspace**: `cordn-core` (lib, no network deps) + `cordn-server`
-   (bin, pulls in `contextvm-sdk` + `rmcp` + `tokio`). Do not split further
-   (no separate `cordn-storage` / `cordn-contracts`) unless a real need appears.
+4. **Two-crate root workspace**: `cordn-core` (lib, no network deps) +
+   `cordn-server` (lib + bin, pulls in `contextvm-sdk` + `rmcp` + `tokio`). Do
+   not split the coordinator into more core crates (no separate
+   `cordn-storage` / `cordn-contracts`) unless a real need appears. The Android
+   product shell is intentionally a separate nested workspace under `apps/`;
+   it path-depends on these crates without burdening root `cargo test`.
 
 5. **`rusqlite`, not `sqlx`.** The coordinator is single-writer synchronous by
    design contract; `rusqlite` mirrors the TS `better-sqlite3` model and the
@@ -106,6 +117,15 @@ These are settled. Do not relitigate them without an explicit change request.
 10. **Polyglot monorepo is a separate, later effort.** Do not restructure this
     repo to host the TS implementation. The 2-crate Rust workspace is
     forward-compatible with becoming a subtree of a future polyglot monorepo.
+
+11. **Android uses Tauri/SvelteKit plus a dedicated foreground-service
+    process.** The bundled frontend is static; no coordinator logic runs in the
+    WebView. `CordnService` runs as `:coordinator`, loads the app Rust library
+    through JNI, and calls `cordn-server::runtime`. It uses the Android
+    `specialUse` foreground-service type, SQLite in `noBackupFilesDir`, and an
+    Android-Keystore-encrypted stable Nostr key. Keep the service app-local and
+    narrow; do not adopt a broad background-service framework. Signed arm64
+    APKs ship on GitHub Releases first; Zapstore is next, never Google Play.
 
 ### Resolved: `contextvm-sdk` client-pubkey injection
 
@@ -149,9 +169,14 @@ cargo build -p cordn-core    # build the core lib only
 cargo check                  # fast type-check
 cargo fmt                    # format
 cargo clippy --all-targets   # lint
+
+cd apps/cordn-coordinator
+pnpm check
+pnpm exec tauri android build --debug --apk --target aarch64 --ci
 ```
 
 `references/` is read-only and not part of the workspace; do not build or edit it.
+The Android app has its own pnpm/Cargo lockfiles and checks.
 
 ## Development workflow
 
@@ -328,8 +353,10 @@ cross-reads are safe.
     version. It parses as a semver pre-release (lower precedence) — harmless,
     and it makes GitHub treat the tag as a prerelease, leaving the last clean
     `vX.Y.Z` as the "latest release."
-  Both tag shapes match `release.yml`'s `v*` trigger and publish binaries + the
-  multi-arch GHCR image; `:latest` follows the newest tag of either kind.
+  Both tag shapes match `release.yml`'s `v*` trigger and publish server binaries,
+  a signed arm64 Android APK, and the multi-arch GHCR image; `:latest` follows
+  the newest tag of either kind. APKs reuse `cordn-web`'s signing identity via
+  the shared `CORDN_KEYSTORE_*` GitHub secrets.
 
 ## Pull request guidelines
 

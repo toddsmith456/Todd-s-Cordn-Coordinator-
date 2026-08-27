@@ -1,0 +1,24 @@
+[package]
+name = "cordn-coordinator-app"
+version = "0.5.1"
+description = "Run a cordn MLS delivery coordinator on Android"
+authors = ["Cordn contributors"]
+license = "MIT"
+repository = "https://github.com/Cordn-msg/cordn-rs"
+edition = "2021"
+rust-version = "1.88"
+
+[workspace]
+resolver = "2"
+members = [".", "plugins/cordn-android-service"]
+
+[lib]
+name = "cordn_coordinator_app"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+tauri = { version = "2.11.3", features = [] }
+tauri-plugin-cordn-android-service = { path = "plugins/cordn-android-service" }

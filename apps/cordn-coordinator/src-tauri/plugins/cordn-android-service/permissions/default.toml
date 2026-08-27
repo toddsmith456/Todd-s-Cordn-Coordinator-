@@ -1,0 +1,11 @@
+[default]
+description = "Control and inspect the local cordn coordinator service"
+permissions = [
+  "allow-start",
+  "allow-stop",
+  "allow-status",
+  "allow-config",
+  "allow-diagnostics",
+  "allow-request-battery-exemption",
+  "allow-request-notification-permission",
+]
