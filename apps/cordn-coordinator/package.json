@@ -6,6 +6,7 @@
 	"packageManager": "pnpm@10.29.3",
 	"scripts": {
 		"dev": "vite dev",
+		"emulator": "bash scripts/emulator.sh",
 		"build": "vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",

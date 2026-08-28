@@ -39,6 +39,10 @@ pnpm exec tauri android init
 # Run interactively on a device/emulator
 pnpm android
 
+# Boot the emulator (default AVD: Medium_Phone) and run the app on it
+pnpm emulator
+# Override with CORDN_AVD=<avd> or EMU_HEADLESS=1
+
 # Build an APK
 pnpm android:build
 ```
