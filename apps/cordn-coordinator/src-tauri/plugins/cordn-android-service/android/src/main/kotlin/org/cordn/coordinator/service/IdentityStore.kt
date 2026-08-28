@@ -3,16 +3,23 @@ package org.cordn.coordinator.service
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.util.AtomicFile
 import android.util.Base64
+import java.io.File
 import java.security.KeyStore
 import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import org.json.JSONObject
 
 internal class IdentityStore(context: Context) {
-    private val preferences = context.getSharedPreferences("cordn-identity", Context.MODE_PRIVATE)
+    // A plain file, not SharedPreferences: the store is read from the
+    // :coordinator process and written from the app process (reset), and
+    // SharedPreferences caches per process — a stale cached ciphertext would
+    // then be decrypted with a freshly generated Keystore key.
+    private val file = AtomicFile(File(context.noBackupFilesDir, "cordn-identity.json"))
 
     fun getOrCreate(imported: String?): String {
         if (!imported.isNullOrBlank()) {
@@ -22,9 +29,9 @@ internal class IdentityStore(context: Context) {
             return normalized
         }
 
-        val ciphertext = preferences.getString("ciphertext", null)
-        val iv = preferences.getString("iv", null)
-        if (ciphertext != null && iv != null) {
+        val stored = read()
+        if (stored != null) {
+            val (ciphertext, iv) = stored
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(
                 Cipher.DECRYPT_MODE,
@@ -41,15 +48,37 @@ internal class IdentityStore(context: Context) {
         return secret
     }
 
+    fun reset() {
+        file.delete()
+        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        keyStore.deleteEntry(KEY_ALIAS)
+    }
+
+    private fun read(): Pair<String, String>? {
+        if (!file.baseFile.exists()) return null
+        return runCatching {
+            val json = JSONObject(file.openRead().bufferedReader().use { it.readText() })
+            json.getString("ciphertext") to json.getString("iv")
+        }.getOrNull()
+    }
+
     private fun store(secret: String) {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, key())
-        check(
-            preferences.edit()
-                .putString("ciphertext", Base64.encodeToString(cipher.doFinal(secret.toByteArray()), Base64.NO_WRAP))
-                .putString("iv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
-                .commit(),
-        ) { "failed to persist coordinator identity" }
+        val json = JSONObject()
+            .put(
+                "ciphertext",
+                Base64.encodeToString(cipher.doFinal(secret.toByteArray()), Base64.NO_WRAP),
+            )
+            .put("iv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
+        val output = file.startWrite()
+        try {
+            output.write(json.toString().toByteArray())
+            file.finishWrite(output)
+        } catch (error: Exception) {
+            file.failWrite(output)
+            throw error
+        }
     }
 
     private fun key(): SecretKey {

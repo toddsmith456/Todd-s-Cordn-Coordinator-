@@ -6,6 +6,9 @@ permissions = [
   "allow-status",
   "allow-config",
   "allow-diagnostics",
+  "allow-encode-pubkey",
+  "allow-flush-data",
+  "allow-reset-identity",
   "allow-request-battery-exemption",
   "allow-request-notification-permission",
 ]

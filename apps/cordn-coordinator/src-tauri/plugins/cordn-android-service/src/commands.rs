@@ -1,7 +1,8 @@
 use tauri::{command, AppHandle, Runtime};
 
 use crate::{
-    ConfigResponse, CordnAndroidServiceExt, Result, ServiceDiagnostics, ServiceStatus, StartRequest,
+    ConfigResponse, CordnAndroidServiceExt, EncodePubkeyRequest, PubkeyDisplay, Result,
+    ServiceDiagnostics, ServiceStatus, StartRequest,
 };
 
 #[command]
@@ -27,6 +28,24 @@ pub(crate) fn config<R: Runtime>(app: AppHandle<R>) -> Result<ConfigResponse> {
 #[command]
 pub(crate) fn diagnostics<R: Runtime>(app: AppHandle<R>) -> Result<ServiceDiagnostics> {
     app.cordn_android_service().diagnostics()
+}
+
+#[command]
+pub(crate) fn encode_pubkey<R: Runtime>(
+    app: AppHandle<R>,
+    payload: EncodePubkeyRequest,
+) -> Result<PubkeyDisplay> {
+    app.cordn_android_service().encode_pubkey(payload)
+}
+
+#[command]
+pub(crate) fn flush_data<R: Runtime>(app: AppHandle<R>) -> Result<ServiceStatus> {
+    app.cordn_android_service().flush_data()
+}
+
+#[command]
+pub(crate) fn reset_identity<R: Runtime>(app: AppHandle<R>) -> Result<ServiceStatus> {
+    app.cordn_android_service().reset_identity()
 }
 
 #[command]

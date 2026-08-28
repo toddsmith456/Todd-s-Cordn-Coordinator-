@@ -319,6 +319,30 @@
           "markdownDescription": "Denies the diagnostics command without any pre-configured scope."
         },
         {
+          "description": "Enables the encode_pubkey command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-encode-pubkey",
+          "markdownDescription": "Enables the encode_pubkey command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the encode_pubkey command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-encode-pubkey",
+          "markdownDescription": "Denies the encode_pubkey command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the flush_data command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-flush-data",
+          "markdownDescription": "Enables the flush_data command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the flush_data command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-flush-data",
+          "markdownDescription": "Denies the flush_data command without any pre-configured scope."
+        },
+        {
           "description": "Enables the request_battery_exemption command without any pre-configured scope.",
           "type": "string",
           "const": "allow-request-battery-exemption",
@@ -341,6 +365,18 @@
           "type": "string",
           "const": "deny-request-notification-permission",
           "markdownDescription": "Denies the request_notification_permission command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the reset_identity command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-reset-identity",
+          "markdownDescription": "Enables the reset_identity command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the reset_identity command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-reset-identity",
+          "markdownDescription": "Denies the reset_identity command without any pre-configured scope."
         },
         {
           "description": "Enables the start command without any pre-configured scope.",
@@ -379,10 +415,10 @@
           "markdownDescription": "Denies the stop command without any pre-configured scope."
         },
         {
-          "description": "Control and inspect the local cordn coordinator service\n#### This default permission set includes:\n\n- `allow-start`\n- `allow-stop`\n- `allow-status`\n- `allow-config`\n- `allow-diagnostics`\n- `allow-request-battery-exemption`\n- `allow-request-notification-permission`",
+          "description": "Control and inspect the local cordn coordinator service\n#### This default permission set includes:\n\n- `allow-start`\n- `allow-stop`\n- `allow-status`\n- `allow-config`\n- `allow-diagnostics`\n- `allow-encode-pubkey`\n- `allow-flush-data`\n- `allow-reset-identity`\n- `allow-request-battery-exemption`\n- `allow-request-notification-permission`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Control and inspect the local cordn coordinator service\n#### This default permission set includes:\n\n- `allow-start`\n- `allow-stop`\n- `allow-status`\n- `allow-config`\n- `allow-diagnostics`\n- `allow-request-battery-exemption`\n- `allow-request-notification-permission`"
+          "markdownDescription": "Control and inspect the local cordn coordinator service\n#### This default permission set includes:\n\n- `allow-start`\n- `allow-stop`\n- `allow-status`\n- `allow-config`\n- `allow-diagnostics`\n- `allow-encode-pubkey`\n- `allow-flush-data`\n- `allow-reset-identity`\n- `allow-request-battery-exemption`\n- `allow-request-notification-permission`"
         }
       ]
     }

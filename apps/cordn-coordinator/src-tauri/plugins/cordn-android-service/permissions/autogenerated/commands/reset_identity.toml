@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-reset-identity"
+description = "Enables the reset_identity command without any pre-configured scope."
+commands.allow = ["reset_identity"]
+
+[[permission]]
+identifier = "deny-reset-identity"
+description = "Denies the reset_identity command without any pre-configured scope."
+commands.deny = ["reset_identity"]

@@ -1,7 +1,10 @@
 use serde::de::DeserializeOwned;
 use tauri::{plugin::PluginApi, AppHandle, Runtime};
 
-use crate::{ConfigResponse, ServiceDiagnostics, ServiceStatus, StartRequest};
+use crate::{
+    ConfigResponse, EncodePubkeyRequest, PubkeyDisplay, ServiceDiagnostics, ServiceStatus,
+    StartRequest,
+};
 
 pub fn init<R: Runtime, C: DeserializeOwned>(
     _app: &AppHandle<R>,
@@ -31,6 +34,18 @@ impl<R: Runtime> CordnAndroidService<R> {
 
     pub fn diagnostics(&self) -> crate::Result<ServiceDiagnostics> {
         Ok(ServiceDiagnostics::default())
+    }
+
+    pub fn flush_data(&self) -> crate::Result<ServiceStatus> {
+        Ok(ServiceStatus::default())
+    }
+
+    pub fn reset_identity(&self) -> crate::Result<ServiceStatus> {
+        Ok(ServiceStatus::default())
+    }
+
+    pub fn encode_pubkey(&self, _payload: EncodePubkeyRequest) -> crate::Result<PubkeyDisplay> {
+        Err(crate::Error::Unsupported)
     }
 
     pub fn request_battery_exemption(&self) -> crate::Result<()> {

@@ -18,7 +18,7 @@ use jni::{
 };
 use tokio::sync::oneshot;
 
-use crate::{CoordinatorConfig, ServiceStatus};
+use crate::{CoordinatorConfig, EncodePubkeyRequest, PubkeyDisplay, ServiceStatus};
 
 static RUNNING: AtomicBool = AtomicBool::new(false);
 static STOP: Mutex<Option<oneshot::Sender<()>>> = Mutex::new(None);
@@ -32,6 +32,13 @@ pub(crate) fn validate_private_key(private_key_hex: &str) -> Result<(), String> 
 pub(crate) fn ensure_linked() {
     let _ = Java_org_cordn_coordinator_service_CordnNative_runCoordinator as *const ();
     let _ = Java_org_cordn_coordinator_service_CordnNative_stopCoordinator as *const ();
+}
+
+pub(crate) fn encode_pubkey(payload: EncodePubkeyRequest) -> crate::Result<PubkeyDisplay> {
+    let (npub, nprofile) =
+        cordn_server::runtime::pubkey_display(&payload.public_key, &payload.relay_urls)
+            .map_err(|error| crate::Error::InvalidConfig(format!("{error:#}")))?;
+    Ok(PubkeyDisplay { npub, nprofile })
 }
 
 #[no_mangle]
@@ -131,7 +138,6 @@ fn run_coordinator(
             &ServiceStatus {
                 state: "running".into(),
                 public_key: Some(identity.public_key),
-                nprofile: Some(identity.nprofile),
                 last_error: None,
                 battery_exempt: false,
             },
@@ -152,7 +158,6 @@ fn run_coordinator(
                 &ServiceStatus {
                     state: "error".into(),
                     public_key: None,
-                    nprofile: None,
                     last_error: Some(error.clone()),
                     battery_exempt: false,
                 },
@@ -195,10 +200,23 @@ fn write_status(path: &Path, status: &ServiceStatus) -> Result<(), String> {
         .parent()
         .ok_or_else(|| "status path has no parent".to_string())?;
     std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    // The coordinator identity outlives run states; keep the last known
+    // public key on stop/error writes so the UI can still display it.
+    let mut status = status.clone();
+    if status.public_key.is_none() {
+        if let Ok(previous) = std::fs::read(path)
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| {
+                serde_json::from_slice::<ServiceStatus>(&bytes).map_err(|e| e.to_string())
+            })
+        {
+            status.public_key = previous.public_key;
+        }
+    }
     let temporary = PathBuf::from(format!("{}.tmp", path.display()));
     std::fs::write(
         &temporary,
-        serde_json::to_vec(status).map_err(|error| error.to_string())?,
+        serde_json::to_vec(&status).map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())?;
     std::fs::rename(temporary, path).map_err(|error| error.to_string())

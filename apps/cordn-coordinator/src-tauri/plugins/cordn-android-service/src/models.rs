@@ -14,7 +14,10 @@ pub struct CoordinatorConfig {
 impl Default for CoordinatorConfig {
     fn default() -> Self {
         Self {
-            relay_urls: vec!["wss://relay.contextvm.org".into()],
+            relay_urls: vec![
+                "wss://relay.contextvm.org".into(),
+                "wss://relay.nostr.net".into(),
+            ],
             server_name: "cordn-server".into(),
             server_about: None,
             server_website: None,
@@ -57,11 +60,10 @@ pub struct StartRequest {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct ServiceStatus {
     pub state: String,
     pub public_key: Option<String>,
-    pub nprofile: Option<String>,
     pub last_error: Option<String>,
     pub battery_exempt: bool,
 }
@@ -71,11 +73,24 @@ impl Default for ServiceStatus {
         Self {
             state: "stopped".into(),
             public_key: None,
-            nprofile: None,
             last_error: None,
             battery_exempt: false,
         }
     }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EncodePubkeyRequest {
+    pub public_key: String,
+    pub relay_urls: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PubkeyDisplay {
+    pub npub: String,
+    pub nprofile: String,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]

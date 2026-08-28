@@ -14,7 +14,14 @@ The service stores its SQLite database under Android's no-backup app directory.
 Its Nostr private key is encrypted by a non-exportable Android Keystore key and
 is never written to the web frontend or configuration file. The collapsible
 Activity & logs panel polls live record counts and the latest 64 KiB of the
-app-private service log only while it is open.
+app-private service log only while it is open. The Connect & share panel shows
+a QR code and `cordn.net` link for the coordinator (npub / nprofile / hex
+display switch), and the configuration's danger zone can erase coordinator
+data or reset the identity (both require the service to be stopped).
+
+The identity store is a plain file (`no_backup/cordn-identity.json`), not
+SharedPreferences: the file is read from the `:coordinator` process and reset
+from the app process, and SharedPreferences cache per process.
 
 ## Development
 

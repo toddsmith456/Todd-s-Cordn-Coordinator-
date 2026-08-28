@@ -24,13 +24,17 @@ export type ServiceDiagnostics = {
 export type ServiceStatus = {
 	state: 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
 	publicKey?: string;
-	nprofile?: string;
 	lastError?: string;
 	batteryExempt: boolean;
 };
 
+export type PubkeyDisplay = {
+	npub: string;
+	nprofile: string;
+};
+
 export const defaultConfig: CoordinatorConfig = {
-	relayUrls: ['wss://relay.contextvm.org'],
+	relayUrls: ['wss://relay.contextvm.org', 'wss://relay.nostr.net'],
 	serverName: 'cordn-server',
 	serverAbout: null,
 	serverWebsite: null,
@@ -54,6 +58,20 @@ export function getStatus(): Promise<ServiceStatus> {
 
 export function getDiagnostics(): Promise<ServiceDiagnostics> {
 	return invoke(`${plugin}|diagnostics`);
+}
+
+export function encodePubkey(publicKey: string, relayUrls: string[]): Promise<PubkeyDisplay> {
+	return invoke(`${plugin}|encode_pubkey`, {
+		payload: { publicKey, relayUrls }
+	});
+}
+
+export function flushData(): Promise<ServiceStatus> {
+	return invoke(`${plugin}|flush_data`);
+}
+
+export function resetIdentity(): Promise<ServiceStatus> {
+	return invoke(`${plugin}|reset_identity`);
 }
 
 export async function getConfig(): Promise<CoordinatorConfig> {

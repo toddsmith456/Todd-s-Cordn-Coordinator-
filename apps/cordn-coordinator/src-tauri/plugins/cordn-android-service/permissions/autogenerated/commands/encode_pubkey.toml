@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-encode-pubkey"
+description = "Enables the encode_pubkey command without any pre-configured scope."
+commands.allow = ["encode_pubkey"]
+
+[[permission]]
+identifier = "deny-encode-pubkey"
+description = "Denies the encode_pubkey command without any pre-configured scope."
+commands.deny = ["encode_pubkey"]

@@ -1,14 +1,20 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
+	import QRCode from 'qrcode';
+	import { openUrl } from '@tauri-apps/plugin-opener';
 	import {
 		defaultConfig,
+		encodePubkey,
+		flushData,
 		getConfig,
 		getDiagnostics,
 		getStatus,
 		requestBatteryExemption,
 		requestNotificationPermission,
+		resetIdentity,
 		start,
 		stop,
+		type PubkeyDisplay,
 		type ServiceDiagnostics,
 		type ServiceStatus
 	} from '$lib/coordinator';
@@ -27,8 +33,29 @@
 	let privateKey = $state('');
 	let busy = $state(false);
 	let error = $state('');
+	let pubkeyFormat = $state<'npub' | 'nprofile' | 'hex'>('npub');
+	let pubkeyDisplay = $state<PubkeyDisplay | null>(null);
+	let qrSvg = $state('');
+	let dangerConfirm = $state<'' | 'flush' | 'reset'>('');
+	let dangerTimer = 0;
 	let active = $derived(['starting', 'running', 'stopping'].includes(status.state));
-	let relayCount = $derived(relays.split(/[\n,]/).filter((relay) => relay.trim()).length);
+	const relaysList = $derived(
+		relays
+			.split(/[\n,]/)
+			.map((relay) => relay.trim())
+			.filter(Boolean)
+	);
+	let relayCount = $derived(relaysList.length);
+	let pubkeyText = $derived(
+		pubkeyFormat === 'hex' || !pubkeyDisplay
+			? status.publicKey ?? ''
+			: pubkeyFormat === 'npub'
+				? pubkeyDisplay.npub
+				: pubkeyDisplay.nprofile
+	);
+	let shareUrl = $derived(
+		pubkeyDisplay ? `https://cordn.net/chat/coordinators?c=${pubkeyDisplay.nprofile}` : ''
+	);
 
 	onMount(() => {
 		void load();
@@ -76,6 +103,74 @@
 	function toggleDiagnostics(event: Event) {
 		diagnosticsOpen = (event.currentTarget as HTMLDetailsElement).open;
 		if (diagnosticsOpen) void refreshDiagnostics();
+	}
+
+	$effect(() => {
+		const key = status.publicKey;
+		const relaysNow = relaysList.join('\n');
+		if (!key) {
+			pubkeyDisplay = null;
+			return;
+		}
+		void encodePubkey(key, relaysNow ? relaysNow.split('\n') : []).then(
+			(display) => (pubkeyDisplay = display),
+			() => (pubkeyDisplay = null)
+		);
+	});
+
+	$effect(() => {
+		const url = shareUrl;
+		if (!url) {
+			qrSvg = '';
+			return;
+		}
+		void QRCode.toString(url, { type: 'svg', margin: 0, errorCorrectionLevel: 'M' }).then(
+			(svg) => (qrSvg = svg),
+			() => (qrSvg = '')
+		);
+	});
+
+	async function copy(text: string) {
+		try {
+			await navigator.clipboard.writeText(text);
+		} catch (cause) {
+			error = message(cause);
+		}
+	}
+
+	async function shareLink() {
+		try {
+			await navigator.share({ title: 'Cordn coordinator', url: shareUrl });
+		} catch (cause) {
+			error = message(cause);
+		}
+	}
+
+	async function openExternally() {
+		try {
+			await openUrl(shareUrl);
+		} catch (cause) {
+			error = message(cause);
+		}
+	}
+
+	function armDanger(which: 'flush' | 'reset') {
+		dangerConfirm = dangerConfirm === which ? '' : which;
+		window.clearTimeout(dangerTimer);
+		if (dangerConfirm) dangerTimer = window.setTimeout(() => (dangerConfirm = ''), 4_000);
+	}
+
+	async function runDestructive(action: () => Promise<ServiceStatus>) {
+		dangerConfirm = '';
+		busy = true;
+		error = '';
+		try {
+			status = await action();
+		} catch (cause) {
+			error = message(cause);
+		} finally {
+			busy = false;
+		}
 	}
 
 	async function startCoordinator(event: SubmitEvent) {
@@ -204,27 +299,24 @@
 
 		{#if status.publicKey}
 			<div class="identity">
-				<p class="label">Server public key</p>
-				<button
-					type="button"
-					class="copy"
-					onclick={() => navigator.clipboard.writeText(status.publicKey ?? '')}
-				>
-					<code>{status.publicKey}</code>
+				<div class="identity-head">
+					<p class="label">Coordinator identity</p>
+					<div class="format-switch" role="group" aria-label="Public key format">
+						{#each ['npub', 'nprofile', 'hex'] as fmt}
+							<button
+								type="button"
+								class:active={pubkeyFormat === fmt}
+								onclick={() => (pubkeyFormat = fmt as (typeof pubkeyFormat))}
+							>
+								{fmt}
+							</button>
+						{/each}
+					</div>
+				</div>
+				<button type="button" class="copy" onclick={() => copy(pubkeyText)}>
+					<code>{pubkeyText}</code>
 					<span>Copy</span>
 				</button>
-				{#if status.nprofile}
-					<button
-						type="button"
-						class="link"
-						onclick={() =>
-							navigator.clipboard.writeText(
-								`https://cordn.net/chat/coordinators?c=${status.nprofile}`
-							)}
-					>
-						Copy coordinator link
-					</button>
-				{/if}
 			</div>
 		{/if}
 
@@ -242,6 +334,34 @@
 	{#if error || status.lastError}
 		<p class="error" role="alert">{error || status.lastError}</p>
 	{/if}
+
+	<details class="panel share">
+		<summary>
+			<span>
+				<strong>Connect &amp; share</strong>
+				<small>QR code and coordinator link</small>
+			</span>
+		</summary>
+		<div class="panel-content">
+			{#if shareUrl}
+				{#if qrSvg}
+					<div class="qr" aria-label="QR code with the coordinator link">{@html qrSvg}</div>
+				{/if}
+				<button type="button" class="copy" onclick={() => copy(shareUrl)}>
+					<code>{shareUrl}</code>
+					<span>Copy</span>
+				</button>
+				<div class="share-actions">
+					{#if 'share' in navigator}
+						<button type="button" onclick={shareLink}>Share</button>
+					{/if}
+					<button type="button" onclick={openExternally}>Open</button>
+				</div>
+			{:else}
+				<p class="loading">Start the coordinator once to create its identity.</p>
+			{/if}
+		</div>
+	</details>
 
 	<details class="panel diagnostics" ontoggle={toggleDiagnostics}>
 		<summary>
@@ -331,6 +451,44 @@
 						/>
 					</label>
 				</details>
+
+				<div class="danger-zone">
+					<strong>Danger zone</strong>
+					<div class="danger-row">
+						<div>
+							<strong>Erase coordinator data</strong>
+							<small
+								>Deletes all stored key packages, welcomes and messages. Keeps the identity and
+									configuration.</small
+								>
+						</div>
+						<button
+							type="button"
+							class="danger"
+							onclick={() =>
+								dangerConfirm === 'flush' ? void runDestructive(flushData) : armDanger('flush')}
+						>
+							{dangerConfirm === 'flush' ? 'Tap again to erase' : 'Erase'}
+						</button>
+					</div>
+					<div class="danger-row">
+						<div>
+							<strong>Reset identity</strong>
+							<small
+								>Deletes the coordinator identity and all data. A new key is generated on next start —
+									clients must use the new one.</small
+								>
+						</div>
+						<button
+							type="button"
+							class="danger"
+							onclick={() =>
+								dangerConfirm === 'reset' ? void runDestructive(resetIdentity) : armDanger('reset')}
+						>
+							{dangerConfirm === 'reset' ? 'Tap again to reset' : 'Reset'}
+						</button>
+					</div>
+				</div>
 			</fieldset>
 		</details>
 	</form>
@@ -362,10 +520,18 @@
 	.start { background: #70e49b; color: #07140c; }
 	.stop { background: #3b2021; color: #ffb4b6; }
 	.identity { margin-top: 18px; padding-top: 16px; border-top: 1px solid #202b24; }
+	.identity-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+	.format-switch { display: flex; overflow: hidden; border: 1px solid #2a3930; border-radius: 8px; }
+	.format-switch button { padding: 5px 9px; background: #0a0e0c; color: #718077; font-size: .68rem; font-weight: 600; }
+	.format-switch button + button { border-left: 1px solid #2a3930; }
+	.format-switch button.active { background: #70e49b; color: #07140c; }
 	.copy { display: flex; width: 100%; align-items: center; gap: 12px; margin: 8px 0; padding: 10px; background: #0a0e0c; color: #d9e5dd; text-align: left; }
 	.copy code { min-width: 0; overflow: hidden; font-size: .75rem; text-overflow: ellipsis; }
 	.copy span { margin-left: auto; color: #70e49b; font-size: .75rem; }
-	.link { padding: 0; background: transparent; color: #70e49b; font-size: .82rem; }
+	.qr { padding: 10px; margin-bottom: 12px; border-radius: 12px; background: #fff; }
+	.qr :global(svg) { display: block; width: 100%; height: auto; }
+	.share-actions { display: flex; gap: 8px; }
+	.share-actions button { flex: 1; padding: 10px; background: #0a0e0c; border: 1px solid #2a3930; color: #d9e5dd; font-size: .8rem; font-weight: 600; }
 	.reliability { display: flex; gap: 12px; align-items: center; margin-top: 18px; padding: 12px; border: 1px solid #514825; border-radius: 11px; background: #1c190d; }
 	.reliability strong { color: #f0da76; font-size: .78rem; }
 	.reliability p { margin-top: 2px; color: #a99f73; font-size: .7rem; line-height: 1.35; }
@@ -406,5 +572,11 @@
 	.identity-import { border-top: 1px solid #202b24; padding-top: 14px; }
 	.identity-import summary { cursor: pointer; color: #83a690; font-size: .82rem; }
 	.identity-import label { margin-top: 13px; }
+	.danger-zone { display: grid; gap: 12px; margin-top: 16px; border-top: 1px solid #202b24; padding-top: 14px; }
+	.danger-zone > strong { color: #ffb4b6; font-size: .72rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+	.danger-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 11px; border: 1px solid #4d2729; border-radius: 10px; background: #1a1011; }
+	.danger-row strong { font-size: .8rem; }
+	.danger-row small { display: block; margin-top: 2px; color: #a4757a; font-size: .68rem; line-height: 1.35; }
+	.danger-row .danger { flex: 0 0 auto; padding: 8px 12px; background: #5c2125; color: #ffb4b6; font-size: .72rem; font-weight: 700; }
 	@media (max-width: 390px) { .row { grid-template-columns: 1fr; } .reliability { align-items: flex-start; flex-direction: column; } }
 </style>

@@ -4,7 +4,10 @@ use tauri::{
     AppHandle, Runtime,
 };
 
-use crate::{ConfigResponse, ServiceDiagnostics, ServiceStatus, StartRequest};
+use crate::{
+    ConfigResponse, EncodePubkeyRequest, PubkeyDisplay, ServiceDiagnostics, ServiceStatus,
+    StartRequest,
+};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -67,9 +70,30 @@ impl<R: Runtime> CordnAndroidService<R> {
             .map_err(Into::into)
     }
 
-    pub fn request_battery_exemption(&self) -> crate::Result<()> {
+    pub fn flush_data(&self) -> crate::Result<ServiceStatus> {
         self.0
-            .run_mobile_plugin("requestBatteryExemption", ())
+            .run_mobile_plugin("flushData", ())
+            .map_err(Into::into)
+    }
+
+    pub fn reset_identity(&self) -> crate::Result<ServiceStatus> {
+        self.0
+            .run_mobile_plugin("resetIdentity", ())
+            .map_err(Into::into)
+    }
+
+    // Pure bech32/TLV encoding on the Rust side; no Android API involved.
+    #[cfg(target_os = "android")]
+    pub fn encode_pubkey(&self, payload: EncodePubkeyRequest) -> crate::Result<PubkeyDisplay> {
+        crate::android::encode_pubkey(payload)
+    }
+
+    pub fn request_battery_exemption(&self) -> crate::Result<()> {
+        // Kotlin resolves with `{}`; deserializing into `()` would fail with
+        // "invalid type: map, expected unit".
+        self.0
+            .run_mobile_plugin::<serde_json::Value>("requestBatteryExemption", ())
+            .map(|_| ())
             .map_err(Into::into)
     }
 

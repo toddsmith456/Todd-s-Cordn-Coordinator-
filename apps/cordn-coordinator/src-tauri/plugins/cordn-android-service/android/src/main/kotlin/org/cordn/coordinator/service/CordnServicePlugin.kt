@@ -130,6 +130,32 @@ class CordnServicePlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
+    @Command
+    fun flushData(invoke: Invoke) {
+        if (serviceRunning()) {
+            return invoke.reject("Stop the coordinator before erasing data")
+        }
+        deleteDatabase()
+        invoke.resolve(status())
+    }
+
+    @Command
+    fun resetIdentity(invoke: Invoke) {
+        if (serviceRunning()) {
+            return invoke.reject("Stop the coordinator before resetting the identity")
+        }
+        IdentityStore(activity).reset()
+        deleteDatabase()
+        File(activity.noBackupFilesDir, "cordn-status.json").delete()
+        invoke.resolve(status())
+    }
+
+    private fun deleteDatabase() {
+        val database = File(activity.noBackupFilesDir, "cordn.sqlite")
+        listOf(database, File("${database.path}-wal"), File("${database.path}-shm"))
+            .forEach { it.delete() }
+    }
+
     private fun status(stateOverride: String? = null): JSObject {
         val file = File(activity.noBackupFilesDir, "cordn-status.json")
         val stored = if (file.exists()) JSONObject(file.readText()) else JSONObject()
@@ -139,7 +165,7 @@ class CordnServicePlugin(private val activity: Activity) : Plugin(activity) {
             state = "stopped"
         }
         response.put("state", state)
-        for (key in listOf("publicKey", "nprofile", "lastError")) {
+        for (key in listOf("publicKey", "lastError")) {
             if (stored.has(key) && !stored.isNull(key)) response.put(key, stored.get(key))
         }
         response.put("batteryExempt", batteryExempt())

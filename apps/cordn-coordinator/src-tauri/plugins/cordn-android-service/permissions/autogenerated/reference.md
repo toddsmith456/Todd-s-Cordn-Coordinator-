@@ -9,6 +9,9 @@ Control and inspect the local cordn coordinator service
 - `allow-status`
 - `allow-config`
 - `allow-diagnostics`
+- `allow-encode-pubkey`
+- `allow-flush-data`
+- `allow-reset-identity`
 - `allow-request-battery-exemption`
 - `allow-request-notification-permission`
 
@@ -76,6 +79,58 @@ Denies the diagnostics command without any pre-configured scope.
 <tr>
 <td>
 
+`cordn-android-service:allow-encode-pubkey`
+
+</td>
+<td>
+
+Enables the encode_pubkey command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`cordn-android-service:deny-encode-pubkey`
+
+</td>
+<td>
+
+Denies the encode_pubkey command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`cordn-android-service:allow-flush-data`
+
+</td>
+<td>
+
+Enables the flush_data command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`cordn-android-service:deny-flush-data`
+
+</td>
+<td>
+
+Denies the flush_data command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `cordn-android-service:allow-request-battery-exemption`
 
 </td>
@@ -121,6 +176,32 @@ Enables the request_notification_permission command without any pre-configured s
 <td>
 
 Denies the request_notification_permission command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`cordn-android-service:allow-reset-identity`
+
+</td>
+<td>
+
+Enables the reset_identity command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`cordn-android-service:deny-reset-identity`
+
+</td>
+<td>
+
+Denies the reset_identity command without any pre-configured scope.
 
 </td>
 </tr>

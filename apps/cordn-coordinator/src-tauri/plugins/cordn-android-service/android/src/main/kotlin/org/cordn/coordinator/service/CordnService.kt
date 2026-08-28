@@ -146,9 +146,20 @@ internal class CordnService : Service() {
     private fun configFile() = File(noBackupFilesDir, "cordn-config.json")
 
     private fun writeStatus(state: String, error: String? = null) {
+        val statusFile = File(noBackupFilesDir, "cordn-status.json")
+        // The coordinator identity outlives run states; keep the last known
+        // public key so the UI can still display it while stopped.
+        val previous = if (statusFile.exists()) {
+            runCatching { JSONObject(statusFile.readText()) }.getOrNull()
+        } else {
+            null
+        }
         val status = JSONObject().put("state", state)
+        if (previous != null && previous.has("publicKey") && !previous.isNull("publicKey")) {
+            status.put("publicKey", previous.optString("publicKey"))
+        }
         if (error != null) status.put("lastError", error)
-        val file = AtomicFile(File(noBackupFilesDir, "cordn-status.json"))
+        val file = AtomicFile(statusFile)
         val output = file.startWrite()
         try {
             output.write(status.toString().toByteArray())

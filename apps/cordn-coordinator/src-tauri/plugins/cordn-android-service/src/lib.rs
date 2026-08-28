@@ -44,6 +44,9 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::status,
             commands::config,
             commands::diagnostics,
+            commands::encode_pubkey,
+            commands::flush_data,
+            commands::reset_identity,
             commands::request_battery_exemption,
             commands::request_notification_permission,
         ])

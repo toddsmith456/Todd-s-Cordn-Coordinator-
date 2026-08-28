@@ -139,6 +139,21 @@ worker rewrites the request id to the event id). The adapter (step 5) reads
 `OpenStreamWriter` from extensions for streaming tools. Shipped as
 `contextvm-sdk` 0.2.1 on crates.io; `cordn-server` depends on it by version.
 
+### Resolved: `contextvm-sdk` git pin (`vendor/contextvm-sdk` branch)
+
+Upstream `rs-sdk` main carries a post-0.2.2 fix (c501e01, "drive the MCP
+handshake once at worker startup") that cordn needs: without it, a client
+`notifications/cancelled` published while the server is offline — e.g. a
+request that times out during a stop — is relay-replayed into the fresh rmcp
+session before `initialize` and kills the coordinator. Upstream cannot be
+fetched as a cargo git dep because the repo tree carries a `contextvm-docs`
+submodule gitlink with no `.gitmodules` URL (cargo/git fail initializing it),
+so the exact `c501e01` tree is mirrored on this repo's
+`vendor/contextvm-sdk` branch with only that gitlink removed
+(`git archive c501e01 | tar -x --exclude=contextvm-docs`), and
+`crates/cordn-server/Cargo.toml` pins the rev on that branch. When upstream
+releases ≥0.2.3, flip the dep back to a version and delete the branch.
+
 ### Resolved: inbound publication Nostr event (`InboundEvent`)
 
 The contextvm-sdk worker injects `ClientPubkey` (the SDK-verified signer) and

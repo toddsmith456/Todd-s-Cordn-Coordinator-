@@ -7,6 +7,10 @@
   ],
   "permissions": [
     "core:default",
-    "cordn-android-service:default"
+    "cordn-android-service:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "https://cordn.net/*" }]
+    }
   ]
 }

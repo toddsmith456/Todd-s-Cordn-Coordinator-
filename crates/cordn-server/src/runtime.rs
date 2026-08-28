@@ -78,7 +78,7 @@ pub async fn start(cfg: ServerConfig) -> Result<RunningServer> {
     let public_key = signer.public_key();
     let identity = ServerIdentity {
         public_key: public_key.to_hex(),
-        nprofile: build_nprofile(&public_key, &cfg.relay_urls),
+        nprofile: build_nprofile(&public_key, &cfg.relay_urls)?,
     };
 
     let now: Now = default_now();
@@ -161,7 +161,21 @@ fn build_transport_config(cfg: &ServerConfig) -> NostrServerTransportConfig {
         )
 }
 
-fn build_nprofile(public_key: &nostr::PublicKey, relay_urls: &[String]) -> String {
+/// NIP-19 display forms (npub, nprofile) of a hex public key, embedding the
+/// given relays in the nprofile.
+pub fn pubkey_display(public_key_hex: &str, relay_urls: &[String]) -> Result<(String, String)> {
+    use nostr::nips::nip19::ToBech32;
+
+    let public_key = nostr::PublicKey::from_hex(public_key_hex)
+        .context("server public key must be 64 hex characters")?;
+    let npub = public_key
+        .to_bech32()
+        .context("encoding public key as npub")?;
+    let nprofile = build_nprofile(&public_key, relay_urls)?;
+    Ok((npub, nprofile))
+}
+
+fn build_nprofile(public_key: &nostr::PublicKey, relay_urls: &[String]) -> Result<String> {
     use nostr::nips::nip19::{Nip19Profile, ToBech32};
 
     let relays: Vec<nostr::RelayUrl> = relay_urls
@@ -170,12 +184,23 @@ fn build_nprofile(public_key: &nostr::PublicKey, relay_urls: &[String]) -> Strin
         .collect();
     Nip19Profile::new(*public_key, relays)
         .to_bech32()
-        .unwrap_or_default()
+        .context("encoding server identity as nprofile")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pubkey_display_encodes_nip19_forms() {
+        // Deterministic hex key (all zeroes is not a valid x-only point; use a fixed one).
+        let public_key = "2b2f5c2f4e5d6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b";
+        let (npub, nprofile) =
+            pubkey_display(public_key, &["wss://relay.contextvm.org".into()]).unwrap();
+        assert!(npub.starts_with("npub1"));
+        assert!(nprofile.starts_with("nprofile1"));
+        assert!(pubkey_display("nothex", &[]).is_err());
+    }
 
     #[tokio::test]
     async fn start_does_not_wait_for_the_first_client() {
