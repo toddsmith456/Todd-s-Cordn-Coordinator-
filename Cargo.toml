@@ -1,0 +1,114 @@
+[package]
+name = "contextvm-sdk"
+version = "0.2.2"
+edition = "2021"
+rust-version = "1.88"
+description = "Rust SDK for the ContextVM protocol — MCP over Nostr"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/ContextVM/rs-sdk"
+homepage = "https://contextvm.org"
+documentation = "https://docs.rs/contextvm-sdk"
+keywords = ["nostr", "mcp", "modelcontextprotocol", "decentralized", "ai"]
+categories = ["network-programming", "api-bindings", "asynchronous"]
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Hashing for CEP-22 oversized payload transfer (SHA-256 digest of reassembled payloads)
+sha2 = "0.10"
+hex = "0.4"
+
+# RFC 8785 JCS canonicalization for CEP-8 explicit-gating invocation identity.
+# Uses ryu-js (ECMAScript Number::toString) for cross-SDK byte parity with the ts-sdk.
+# Pinned exactly: this is a wire-critical dep whose output bytes gate cross-SDK grant
+# matching, and 0.1.3 has a known i64::MIN bounds-check defect that canonical.rs guards
+# around, so an auto-upgrade must be a deliberate decision that re-checks byte parity,
+# not a silent bump.
+json-canon = "=0.1.3"
+
+# Error handling
+thiserror = "2.0"
+async-trait = "0.1"
+
+# Async stream/future primitives (CEP-41 open-stream `Stream` impl + boxed publish closures)
+futures = "0.3"
+
+# Nostr SDK with NIP-59 (Gift Wrap) support
+nostr-sdk = { version = "0.44", features = ["nip59"] }
+
+# Logging
+tracing = "0.1"
+
+# Optional MCP integration (Rust equivalent to TS @modelcontextprotocol/sdk)
+rmcp = { version = "1.8", features = ["server", "client", "macros", "transport-worker"], optional = true }
+
+# LRU cache for gift-wrap (outer event id) deduplication
+lru = "0.12"
+
+# CancellationToken for graceful event-loop shutdown
+tokio-util = { version = "0.7", features = ["rt"] }
+
+[features]
+# Enable rmcp by default while keeping legacy APIs available.
+default = ["rmcp"]
+rmcp = ["dep:rmcp"]
+## Exposes `MockRelayPool` for use in downstream integration tests.
+test-utils = []
+
+[[example]]
+name = "rmcp_integration_test"
+required-features = ["rmcp"]
+
+[[example]]
+name = "native_echo_server"
+required-features = ["rmcp"]
+
+[[example]]
+name = "native_echo_client"
+required-features = ["rmcp"]
+
+[[test]]
+name = "e2e_happy_path"
+required-features = ["rmcp", "test-utils"]
+
+[[test]]
+name = "transport_integration"
+required-features = ["test-utils"]
+
+[[test]]
+name = "oversized_timeout_e2e"
+required-features = ["rmcp", "test-utils"]
+
+[[test]]
+name = "open_stream_e2e"
+required-features = ["rmcp", "test-utils"]
+
+[[test]]
+name = "open_stream_timeout_e2e"
+required-features = ["rmcp", "test-utils"]
+
+[[test]]
+name = "payments_negotiation_e2e"
+required-features = ["test-utils"]
+
+[[test]]
+name = "rmcp_handshake_survival"
+required-features = ["rmcp", "test-utils"]
+
+[dev-dependencies]
+# `start_paused` deterministic-time tests (tokio's "full" does not include test-util).
+tokio = { version = "1", features = ["test-util"] }
+tokio-test = "0.4"
+anyhow = "1"
+schemars = "0.8"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[workspace]
+members = [".", "contextvm-ffi"]
+resolver = "2"
