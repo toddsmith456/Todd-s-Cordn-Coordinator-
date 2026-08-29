@@ -93,6 +93,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Prerelease flag (hyphen in the semver part, not the android-v prefix)
+        id: pre
+        run: |
+          v="${GITHUB_REF_NAME#android-v}"
+          if [[ "$v" == *"-"* ]]; then echo "flag=true" >> "$GITHUB_OUTPUT"; else echo "flag=false" >> "$GITHUB_OUTPUT"; fi
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -103,7 +108,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ steps.pre.outputs.flag }}
           files: |
             artifacts/*.apk
             artifacts/SHA256SUMS
