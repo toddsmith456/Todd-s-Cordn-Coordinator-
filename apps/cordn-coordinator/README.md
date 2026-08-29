@@ -62,9 +62,14 @@ logic there—shared server assembly belongs in `crates/cordn-server/src/runtime
 
 ## GitHub release APK
 
-The tag-triggered release workflow builds, signs, verifies, and attaches an
-arm64 APK to the GitHub Release. It intentionally reuses the Cordn release
-identity already used by `cordn-web`. Give this repository access to the same
+Android releases are their own lane: push an `android-vX.Y.Z` tag (prerelease:
+`android-vX.Y.Z-next.N`) and `release-android.yml` builds, signs, and attaches
+the arm64 APK to its own GitHub Release. The tag semver is the app's
+`versionName`; the app versioning is independent of the server's parity tags.
+Server releases (`v*` tags) never build an APK and vice versa.
+
+The workflow intentionally reuses the Cordn release identity already used by
+`cordn-web`. Give this repository access to the same
 organization secrets, or copy the existing values into repository secrets:
 
 - `CORDN_KEYSTORE_BASE64`
@@ -79,3 +84,17 @@ any APK whose signing-certificate SHA-256 is not Cordn's published fingerprint:
 `a6626cfca551c5605f0af450c6bf6d831fc70eb2dcd17f027eb358c56852758f`.
 Losing or changing that keystore prevents future APKs from updating existing
 installs.
+
+## Zapstore publishing
+
+Manual, from a checkout (the signing key never enters CI):
+
+```bash
+SIGN_WITH=nsec1… zsp publish zapstore.yaml     # repo root; fetches the latest release's arm64 APK
+```
+
+Run it right after an `android-v*` release so the latest release is the APK
+lane. If a server release landed in between, publish the APK explicitly:
+`zsp publish <apk> -r github.com/Cordn-msg/cordn-rs`. The publisher identity
+is pinned in the root `zapstore.yaml` (same Cordn key as `cordn-web`, so the
+keystore→identity certificate link already exists).

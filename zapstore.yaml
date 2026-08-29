@@ -1,0 +1,28 @@
+name: Cordn Coordinator
+repository: https://github.com/Cordn-msg/cordn-rs
+summary: Run your own Cordn coordinator from your pocket — MLS key packages, welcomes, and group message delivery as an Android app.
+description: |
+  The open-source Cordn MLS delivery coordinator as an Android app. Runs as a
+  foreground service: publishes your coordinator's Nostr identity (npub /
+  nprofile + QR), stores MLS key packages, welcomes, join requests, and opaque
+  group message streams in app-private storage, and streams messages to group
+  members over Nostr relays.
+
+  - MLS key-package publishing with last-resort support
+  - Welcomes and join-request delivery
+  - Per-group ordered message streams (backlog replay + live tail)
+  - Stable Nostr identity encrypted by the Android Keystore
+  - SQLite storage in the no-backup directory; erase or reset from the UI
+tags:
+  - privacy
+  - messaging
+  - decentralized
+  - self-hosted
+  - nostr
+  - mls
+  - coordinator
+license: MIT
+website: https://cordn.net
+metadata_sources:
+  - github
+pubkey: npub1c0rdnwectlvz0n7mghvn8g0genefqklrq3n328k4lc6k5y99yh5s640tlv

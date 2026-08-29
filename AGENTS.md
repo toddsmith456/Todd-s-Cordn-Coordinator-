@@ -356,22 +356,32 @@ cross-reads are safe.
 - Runtime configuration is environment-driven (see Development workflow).
 - The server entrypoint prints a startup banner (pubkey, nprofile, relay list,
   cordn.net URL) to stdout, then structured logs. Shutdown on `SIGTERM`/`SIGINT`.
-- **Releases and versioning.** The workspace `version` is the **TS-parity
-  version** — it tracks `cordn` upstream and only moves when TS moves.
-  - **Parity releases** (`make patch|minor|major` → `vX.Y.Z`): bump the cargo
-    version to match a new `cordn` release. The only releases that change the
-    binary version.
-  - **Packaging-only releases** (Docker image, installer updates — no behavior
-    change): tag `vX.Y.Z-<label>.N` (e.g. `v0.5.1-next.0`, `v0.5.1-rs.1`)
-    **without** bumping the cargo version. The suffix is a release label, never
-    a library version, so `cordn-server --version` still reports the parity
-    version. It parses as a semver pre-release (lower precedence) — harmless,
-    and it makes GitHub treat the tag as a prerelease, leaving the last clean
-    `vX.Y.Z` as the "latest release."
-  Both tag shapes match `release.yml`'s `v*` trigger and publish server binaries,
-  a signed arm64 Android APK, and the multi-arch GHCR image; `:latest` follows
-  the newest tag of either kind. APKs reuse `cordn-web`'s signing identity via
-  the shared `CORDN_KEYSTORE_*` GitHub secrets.
+- **Releases and versioning — two independent lanes keyed by tag prefix** (the
+  globs never overlap: `v*` cannot match `android-v*`).
+  - **Server lane** (`release.yml`, `v*` tags): parity releases
+    (`make patch|minor|major` → `vX.Y.Z`) bump the workspace cargo version to
+    match a new `cordn` release; packaging-only releases tag
+    `vX.Y.Z-<label>.N` (e.g. `v0.5.1-rs.1`) **without** bumping cargo — the
+    suffix is a release label, never a library version, so `cordn-server
+    --version` still reports the parity version. Publishes server binaries +
+    the multi-arch GHCR image (`:latest` follows the newest lane tag).
+  - **Android lane** (`release-android.yml`, `android-v*` tags): publishes only
+    the signed arm64 APK on its own GitHub Release. The tag semver is the app's
+    `versionName` — the app versioning is **independent** of the server parity
+    version (first lane tag: `android-v0.5.2`, continuing above the old
+    combined-lane `versionCode`s; bump `apps/cordn-coordinator`'s
+    `package.json` + `tauri.conf.json` to match each lane release).
+    versionCode = `major*1e8 + minor*1e6 + patch*1e4 + run%1e4` and must stay
+    monotonic. Prerelease: hyphenated tags (e.g. `android-v0.6.0-next.1`).
+  APKs reuse `cordn-web`'s signing identity via the shared `CORDN_KEYSTORE_*`
+  GitHub secrets. **Zapstore publishing is manual** (never in CI): from a
+  checkout run `zsp publish zapstore.yaml` right after an android-lane release
+  (config mode fetches the *latest* release — if a server release landed in
+  between, publish the APK explicitly instead:
+  `zsp publish <apk> -r github.com/Cordn-msg/cordn-rs`). Signing identity is
+  pinned by `pubkey` in the root `zapstore.yaml` (the Cordn publisher key,
+  same as `cordn-web`; cert→identity linking already exists for this
+  keystore).
 
 ## Pull request guidelines
 
