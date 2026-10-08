@@ -17,6 +17,10 @@ serde_json = "1"
 # `tracing` is a plain (non-optional) dep so the rmcp-free adapter can emit
 # abuse-protection rejection logs without the `server` feature.
 tracing = "0.1"
+# Also plain, for the same reason: the self-description publication loop
+# (`announce`) takes a CancellationToken and is unit-tested without the
+# `server` feature.
+tokio-util = { version = "0.7", features = ["rt"] }
 
 # Server transport + rmcp (Phase B: methods.rs + main.rs). Gated behind the
 # `server` feature so the rmcp-free adapter/config compile and test without
@@ -36,11 +40,15 @@ rmcp = { version = "1.8", features = ["server", "macros"], optional = true }
 schemars = { version = "1", optional = true }
 anyhow = { version = "1", optional = true }
 tracing-subscriber = { version = "0.3", optional = true, features = ["env-filter"] }
-tokio-util = { version = "0.7", optional = true, features = ["rt"] }
 # NIP-19 nprofile encoding for the startup banner. Already compiled transitively
 # (contextvm-sdk → nostr-sdk → nostr at 0.44.x), so this reuses an existing build
 # artifact rather than pulling a new one.
 nostr = { version = "0.44", optional = true, default-features = false }
+# Publishing the coordinator's own kind-0 and kind-10002 events (see `announce`):
+# the ContextVM transport publishes them once at startup and cannot retry, so we
+# publish them ourselves. Same version and features as contextvm-sdk asks for, so
+# this reuses the already-compiled artifact.
+nostr-sdk = { version = "0.44", features = ["nip59"], optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util", "macros", "rt", "time", "sync"] }
@@ -48,7 +56,7 @@ hex = "0.4"
 
 [features]
 default = []
-server = ["dep:contextvm-sdk", "dep:rmcp", "dep:schemars", "dep:anyhow", "dep:tracing-subscriber", "dep:tokio-util", "dep:nostr", "cordn-core/schemars"]
+server = ["dep:contextvm-sdk", "dep:rmcp", "dep:schemars", "dep:anyhow", "dep:tracing-subscriber", "dep:nostr", "dep:nostr-sdk", "cordn-core/schemars"]
 
 [[bin]]
 name = "cordn-server"

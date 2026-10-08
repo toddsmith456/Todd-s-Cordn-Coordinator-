@@ -135,9 +135,17 @@ process environment. Unset values use the defaults below.
 | `CORDN_SERVER_PRIVATE_KEY` | _(ephemeral)_ | Hex Nostr private key. Unset → a new key is generated each start. |
 | `CORDN_RELAY_URLS` | `wss://relay.contextvm.org` | Comma-separated relay URLs. |
 | `CORDN_SERVER_NAME` | `cordn-server` | Server name (kind 0 metadata). |
-| `CORDN_SERVER_ABOUT` | _(none)_ | About text. |
-| `CORDN_SERVER_WEBSITE` | _(none)_ | Website. |
-| `CORDN_ANNOUNCED` | `false` | Announce the server on the relay. |
+| `CORDN_SERVER_ABOUT` | _(none)_ | About text (kind 0). |
+| `CORDN_SERVER_WEBSITE` | _(none)_ | Website (kind 0). |
+| `CORDN_SERVER_PICTURE` | _(none)_ | Avatar URL (kind 0). |
+| `CORDN_SERVER_NIP05` | _(none)_ | NIP-05 identifier (kind 0). |
+| `CORDN_SERVER_LUD16` | _(none)_ | Lightning address (kind 0). |
+| `CORDN_ANNOUNCED` | `false` | Announce the server's MCP capabilities (CEP-6, kinds 11316–11320). |
+| `CORDN_PUBLISH_RELAY_LIST` | `true` | Publish a NIP-65 relay list (kind 10002) saying where this coordinator is reachable. |
+| `CORDN_PUBLISH_PROFILE` | `true` | Publish a NIP-01 profile (kind 0) from the `CORDN_SERVER_*` fields. |
+| `CORDN_RELAY_LIST_URLS` | _(`CORDN_RELAY_URLS`)_ | What the relay list advertises, if clients reach the relays under different names. |
+| `CORDN_DISCOVERY_FALLBACK_RELAYS` | purplepag.es, relay.damus.io, relay.primal.net, nos.lol, relay.nostr.net | Relays the two events are *also* sent to, so a client that has never heard of this coordinator can still find it. Set empty for "our relays only". |
+| `CORDN_DISCOVERY_REFRESH_HOURS` | `24` | Re-publish both events this often. `0` publishes once at startup. |
 | `CORDN_STORAGE_BACKEND` | `memory` | `memory` \| `sqlite`. |
 | `CORDN_SQLITE_PATH` | `./cordn.sqlite` | _(sqlite only)_ DB file path. |
 | `CORDN_SQLITE_SYNCHRONOUS` | `normal` | _(sqlite only)_ `normal` \| `full`. `normal` is ~30–40× faster than `full`; crash-safe, no corruption (power loss can drop the last committed txn). The TS server defaults to `full`. |
@@ -149,6 +157,19 @@ process environment. Unset values use the defaults below.
 | `CORDN_MAX_KEY_PACKAGES_PER_IDENTITY` | `50` | Max published key packages per identity. |
 | `CORDN_MAX_LAST_RESORT_KEY_PACKAGES_PER_IDENTITY` | `1` | Max last-resort key packages per identity. |
 | `CORDN_LOG_ABUSE_REJECTIONS` | `true` | Log rate-limit/quota rejections. |
+
+### Being findable
+
+A client that is handed only this coordinator's public key — in a group
+reference, an invite link, a settings field — has one way to learn where to
+reach it: the coordinator's own NIP-65 relay list (kind 10002). The server
+publishes one at startup, to its own relays *and* to the fallback relays above,
+and republishes every `CORDN_DISCOVERY_REFRESH_HOURS` so a relay that was
+unreachable at startup, or that dropped the event, holds a current list. Relays
+that do not take an event are retried after 30 s, 2 min, 10 min and 1 h; the
+reason the relay gave is logged (`wss://relay.contextvm.org`, for one, answers
+`blocked: event kind 0 is not allowed`, so expect that one to refuse the
+profile). The startup banner says what is being published and where.
 
 ## Workspace layout
 

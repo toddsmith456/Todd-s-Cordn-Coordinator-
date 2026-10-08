@@ -70,6 +70,13 @@ CORDN_RELAY_URLS=wss://relay.contextvm.org
 # Persistent storage (data dir is $DATA).
 CORDN_STORAGE_BACKEND=sqlite
 CORDN_SQLITE_PATH=$DATA/cordn.sqlite
+
+# How clients find this coordinator: a NIP-65 relay list (kind 10002) and a
+# profile (kind 0), published to the relays above and to a few relays clients
+# read, then refreshed daily. Name it something people will recognise.
+CORDN_SERVER_NAME=cordn coordinator
+#CORDN_DISCOVERY_FALLBACK_RELAYS=wss://purplepag.es,wss://relay.damus.io,wss://relay.primal.net,wss://nos.lol,wss://relay.nostr.net
+#CORDN_DISCOVERY_REFRESH_HOURS=24
 EOF
     chmod 640 "$ENVFILE"
     chown root:"$USER" "$ENVFILE"

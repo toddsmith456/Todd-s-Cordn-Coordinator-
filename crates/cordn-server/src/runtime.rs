@@ -17,6 +17,7 @@ use cordn_core::{
 
 use crate::{
     adapter::{CoordinatorAdapter, Now},
+    announce::{self, SelfEvent, SelfPublisher},
     config::{ServerConfig, StorageBackend},
     methods::CordnServer,
 };
@@ -32,6 +33,8 @@ pub struct RunningServer {
     coordinator: Arc<Coordinator>,
     cancellation: CancellationToken,
     task: Option<JoinHandle<Result<()>>>,
+    /// Publishes and refreshes the coordinator's own kind-0 / kind-10002 events.
+    discoverability: Option<JoinHandle<()>>,
 }
 
 impl RunningServer {
@@ -60,6 +63,9 @@ impl RunningServer {
 impl Drop for RunningServer {
     fn drop(&mut self) {
         self.cancellation.cancel();
+        if let Some(task) = &self.discoverability {
+            task.abort();
+        }
         self.coordinator.close();
     }
 }
@@ -71,10 +77,12 @@ pub fn validate_private_key(private_key_hex: &str) -> Result<()> {
 }
 
 pub async fn start(cfg: ServerConfig) -> Result<RunningServer> {
+    let discoverability_cfg = cfg.clone();
     let signer = match &cfg.private_key_hex {
         Some(hex) => signer::from_sk(hex).context("server private key")?,
         None => signer::generate(),
     };
+    let signer_keys = signer.clone();
     let public_key = signer.public_key();
     let identity = ServerIdentity {
         public_key: public_key.to_hex(),
@@ -129,12 +137,119 @@ pub async fn start(cfg: ServerConfig) -> Result<RunningServer> {
         Ok(())
     });
 
+    // Say where this coordinator can be reached, and keep saying it. A client
+    // holding only its public key has no other way to find it (see `announce`).
+    let discoverability =
+        spawn_discoverability(discoverability_cfg, signer_keys, cancellation.child_token());
+
     Ok(RunningServer {
         identity,
         coordinator,
         cancellation,
         task: Some(task),
+        discoverability,
     })
+}
+
+/// Start the self-description publication loop, unless there is nothing to
+/// publish or nowhere to publish it.
+fn spawn_discoverability(
+    cfg: ServerConfig,
+    keys: signer::Keys,
+    cancel: CancellationToken,
+) -> Option<JoinHandle<()>> {
+    if announce::self_events(&cfg).is_empty() {
+        tracing::info!(
+            "not publishing this coordinator's relay list or profile (both switched off)"
+        );
+        return None;
+    }
+    let targets = announce::publish_targets(&cfg);
+    if targets.is_empty() {
+        tracing::warn!("no relay to publish this coordinator's relay list to");
+        return None;
+    }
+    Some(tokio::spawn(async move {
+        let publisher = RelayPublisher::connect(keys, &targets).await;
+        announce::run(&cfg, &publisher, cancel).await;
+        publisher.close().await;
+    }))
+}
+
+/// How long the publisher waits for its relay sockets before the first publish.
+const CONNECT_WAIT_SECONDS: u64 = 10;
+
+/// [`SelfPublisher`] over a short-lived `nostr-sdk` client. Separate from the
+/// ContextVM transport's own relay pool on purpose: the fallback relays are
+/// publication targets, not operational relays, and nothing is read from them.
+struct RelayPublisher {
+    client: nostr_sdk::Client,
+}
+
+impl RelayPublisher {
+    async fn connect(keys: signer::Keys, targets: &[String]) -> Self {
+        let client = nostr_sdk::Client::new(keys);
+        for url in targets {
+            if let Err(error) = client.add_relay(url.as_str()).await {
+                tracing::warn!(relay = %url, %error, "cannot publish the coordinator's own events there");
+            }
+        }
+        client.connect().await;
+        // `connect` only spawns the connection tasks. Publishing before a socket
+        // is up puts that relay in neither the success nor the failed set, so the
+        // first round would report a relay as not having taken the event and wait
+        // out a retry for no reason (seen against wss://relay.contextvm.org).
+        client
+            .wait_for_connection(std::time::Duration::from_secs(CONNECT_WAIT_SECONDS))
+            .await;
+        RelayPublisher { client }
+    }
+
+    async fn close(&self) {
+        self.client.disconnect().await;
+    }
+}
+
+#[async_trait::async_trait]
+impl SelfPublisher for RelayPublisher {
+    async fn publish(&self, targets: &[String], event: &SelfEvent) -> Vec<String> {
+        use nostr_sdk::prelude::*;
+
+        let tags: Vec<Tag> = event
+            .tags
+            .iter()
+            .filter_map(|tag| Tag::parse(tag.clone()).ok())
+            .collect();
+        let builder = EventBuilder::new(Kind::Custom(event.kind), event.content.clone()).tags(tags);
+        match self
+            .client
+            .send_event_builder_to(targets.to_vec(), builder)
+            .await
+        {
+            Ok(output) => {
+                let took: std::collections::HashSet<String> = output
+                    .success
+                    .iter()
+                    .map(|url| url.to_string().trim_end_matches('/').to_owned())
+                    .collect();
+                // The reason is the only way an operator learns *why* a relay keeps
+                // being retried — wss://relay.contextvm.org, for one, answers
+                // "blocked: event kind 0 is not allowed".
+                for (relay, reason) in &output.failed {
+                    tracing::warn!(%relay, %reason, kind = event.kind, "relay would not take the coordinator's own event");
+                }
+                targets
+                    .iter()
+                    .filter(|target| !took.contains(target.trim_end_matches('/')))
+                    .cloned()
+                    .collect()
+            }
+            Err(error) => {
+                tracing::warn!(%error, kind = event.kind, "could not publish the coordinator's own event");
+                targets.to_vec()
+            }
+        }
+    }
 }
 
 fn build_transport_config(cfg: &ServerConfig) -> NostrServerTransportConfig {
@@ -148,6 +263,12 @@ fn build_transport_config(cfg: &ServerConfig) -> NostrServerTransportConfig {
     NostrServerTransportConfig::default()
         .with_relay_urls(cfg.relay_urls.clone())
         .with_announced_server(cfg.is_announced)
+        // The transport publishes a kind 10002 (and a kind 0, when given profile
+        // metadata) exactly once, as it starts, and cannot retry a relay that was
+        // down or refresh a list a relay has dropped. `announce` owns both events
+        // instead, so there is one place that decides what this coordinator says
+        // about itself — and one place an operator configures.
+        .with_publish_relay_list(false)
         .with_encryption_mode(EncryptionMode::Optional)
         .with_gift_wrap_mode(GiftWrapMode::Optional)
         .with_server_info(server_info)
