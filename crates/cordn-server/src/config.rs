@@ -40,6 +40,73 @@ pub struct AbuseProtectionConfig {
     pub log_rejections: bool,
 }
 
+/// What the coordinator publishes about itself, and where.
+///
+/// A client that holds only a coordinator's public key has exactly one way to
+/// learn where to reach it: the coordinator's own NIP-65 relay list (kind
+/// 10002). A coordinator that never publishes one can only be used by someone
+/// who was handed its relays out of band, and a client whose stored relays go
+/// stale has nothing to recover from. The profile (kind 0) is the cosmetic half
+/// of the same idea: it is what lets a client show a name instead of 64 hex
+/// characters.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscoverabilityConfig {
+    /// Publish a NIP-65 relay list (kind 10002) naming the relays below.
+    pub publish_relay_list: bool,
+    /// Publish a NIP-01 profile (kind 0) built from the `CORDN_SERVER_*` fields.
+    pub publish_profile: bool,
+    /// What the relay list advertises. `None` advertises the relays the server
+    /// actually listens on (`relay_urls`), which is what an operator wants
+    /// unless clients reach those relays under different names.
+    pub relay_list_urls: Option<Vec<String>>,
+    /// Relays the two events are *also* sent to, so a client that has never
+    /// heard of this coordinator can still find its relay list. These are not
+    /// operational relays: nothing is read from them.
+    pub fallback_relay_urls: Vec<String>,
+    /// Re-publish both events this often. `0` publishes once at startup.
+    pub refresh_interval_ms: i64,
+    /// Optional kind-0 fields (the name, about and website come from
+    /// `server_name` / `server_about` / `server_website`).
+    pub picture: Option<String>,
+    pub nip05: Option<String>,
+    pub lud16: Option<String>,
+}
+
+/// Where a coordinator's self-description is published besides its own relays.
+///
+/// Measured on 2026-10-08 against three live cordn coordinators: of the relays
+/// clients query for a kind 10002, purplepag.es was the only one holding the
+/// default coordinator's list — and it is not in the ContextVM SDK's own
+/// bootstrap set. These five are the relays a client is likely to ask.
+pub fn default_fallback_relay_urls() -> Vec<String> {
+    vec![
+        "wss://purplepag.es".into(),
+        "wss://relay.damus.io".into(),
+        "wss://relay.primal.net".into(),
+        "wss://nos.lol".into(),
+        "wss://relay.nostr.net".into(),
+    ]
+}
+
+/// 24 hours: often enough that a relay which was unreachable at startup, or
+/// which dropped the event, holds a current list by the next day.
+pub const DEFAULT_DISCOVERABILITY_REFRESH_HOURS: i64 = 24;
+
+impl Default for DiscoverabilityConfig {
+    fn default() -> Self {
+        DiscoverabilityConfig {
+            publish_relay_list: true,
+            publish_profile: true,
+            relay_list_urls: None,
+            fallback_relay_urls: default_fallback_relay_urls(),
+            refresh_interval_ms: DEFAULT_DISCOVERABILITY_REFRESH_HOURS * 3_600_000,
+            picture: None,
+            nip05: None,
+            lud16: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ServerConfig {
     /// Hex private key. `None` means generate an ephemeral key.
@@ -49,6 +116,8 @@ pub struct ServerConfig {
     pub server_about: Option<String>,
     pub server_website: Option<String>,
     pub is_announced: bool,
+    /// Self-description publication (kind 10002 + kind 0).
+    pub discoverability: DiscoverabilityConfig,
     pub storage: StorageConfig,
     pub abuse_protection: AbuseProtectionConfig,
     /// Max age in ms for welcome/join-request cleanup. `0` keeps forever.
@@ -64,6 +133,7 @@ impl Default for ServerConfig {
             server_about: None,
             server_website: None,
             is_announced: false,
+            discoverability: DiscoverabilityConfig::default(),
             storage: StorageConfig {
                 backend: StorageBackend::Memory,
                 sqlite_path: None,
@@ -176,6 +246,18 @@ fn opt_bool(
     }
 }
 
+/// A comma-separated list. `None` when the variable is absent; `Some(vec![])`
+/// when it is set but holds no usable URL, which is how an operator turns a
+/// list off deliberately.
+fn opt_csv(env: &std::collections::HashMap<String, String>, name: &str) -> Option<Vec<String>> {
+    env.get(name).map(|raw| {
+        raw.split(',')
+            .map(|s| s.trim().trim_end_matches('/').to_owned())
+            .filter(|s| !s.is_empty())
+            .collect()
+    })
+}
+
 fn pos_int(
     env: &std::collections::HashMap<String, String>,
     name: &str,
@@ -218,6 +300,23 @@ pub fn read_server_config(
     let server_about = opt_string(env, "CORDN_SERVER_ABOUT");
     let server_website = opt_string(env, "CORDN_SERVER_WEBSITE");
     let is_announced = opt_bool(env, "CORDN_ANNOUNCED")?.unwrap_or(false);
+
+    let discoverability = DiscoverabilityConfig {
+        publish_relay_list: opt_bool(env, "CORDN_PUBLISH_RELAY_LIST")?.unwrap_or(true),
+        publish_profile: opt_bool(env, "CORDN_PUBLISH_PROFILE")?.unwrap_or(true),
+        // an empty CORDN_RELAY_LIST_URLS means "advertise the operational relays"
+        relay_list_urls: opt_csv(env, "CORDN_RELAY_LIST_URLS").filter(|urls| !urls.is_empty()),
+        fallback_relay_urls: opt_csv(env, "CORDN_DISCOVERY_FALLBACK_RELAYS")
+            .unwrap_or_else(default_fallback_relay_urls),
+        refresh_interval_ms: pos_int(
+            env,
+            "CORDN_DISCOVERY_REFRESH_HOURS",
+            DEFAULT_DISCOVERABILITY_REFRESH_HOURS,
+        )? * 3_600_000,
+        picture: opt_string(env, "CORDN_SERVER_PICTURE"),
+        nip05: opt_string(env, "CORDN_SERVER_NIP05"),
+        lud16: opt_string(env, "CORDN_SERVER_LUD16"),
+    };
 
     let backend = opt_string(env, "CORDN_STORAGE_BACKEND").unwrap_or_else(|| "memory".into());
     let storage = match backend.as_str() {
@@ -272,6 +371,7 @@ pub fn read_server_config(
         server_about,
         server_website,
         is_announced,
+        discoverability,
         storage,
         abuse_protection,
         max_age_ms,
@@ -332,6 +432,71 @@ mod tests {
         assert_eq!(c.abuse_protection.key_package_quota.max_per_identity, 7);
         assert_eq!(c.max_age_ms, 86_400_000);
         assert!(c.is_announced);
+    }
+
+    #[test]
+    fn a_coordinator_describes_itself_unless_told_not_to() {
+        let c = read_server_config(&HashMap::new()).unwrap();
+        assert!(
+            c.discoverability.publish_relay_list,
+            "a coordinator nobody can find is the worse default"
+        );
+        assert!(c.discoverability.publish_profile);
+        assert_eq!(
+            None, c.discoverability.relay_list_urls,
+            "advertise the relays we listen on"
+        );
+        assert_eq!(
+            default_fallback_relay_urls(),
+            c.discoverability.fallback_relay_urls
+        );
+        assert_eq!(24 * 3_600_000, c.discoverability.refresh_interval_ms);
+    }
+
+    #[test]
+    fn parses_discoverability_overrides() {
+        let c = read_server_config(&env(&[
+            ("CORDN_PUBLISH_PROFILE", "false"),
+            (
+                "CORDN_RELAY_LIST_URLS",
+                "wss://public.test/, wss://other.test",
+            ),
+            ("CORDN_DISCOVERY_FALLBACK_RELAYS", "wss://indexer.test"),
+            ("CORDN_DISCOVERY_REFRESH_HOURS", "6"),
+            ("CORDN_SERVER_NIP05", "cordn@example.com"),
+        ]))
+        .unwrap();
+        assert!(c.discoverability.publish_relay_list);
+        assert!(!c.discoverability.publish_profile);
+        assert_eq!(
+            Some(vec![
+                "wss://public.test".to_owned(),
+                "wss://other.test".to_owned()
+            ]),
+            c.discoverability.relay_list_urls,
+            "a trailing slash is trimmed so the same relay is not published to twice"
+        );
+        assert_eq!(
+            vec!["wss://indexer.test".to_owned()],
+            c.discoverability.fallback_relay_urls
+        );
+        assert_eq!(6 * 3_600_000, c.discoverability.refresh_interval_ms);
+        assert_eq!(
+            Some("cordn@example.com".to_owned()),
+            c.discoverability.nip05
+        );
+    }
+
+    #[test]
+    fn an_empty_fallback_list_turns_the_fallbacks_off() {
+        let c = read_server_config(&env(&[("CORDN_DISCOVERY_FALLBACK_RELAYS", "")])).unwrap();
+        assert!(
+            c.discoverability.fallback_relay_urls.is_empty(),
+            "set-but-empty is how an operator says 'our relays only'"
+        );
+        // ... while leaving it unset keeps the defaults
+        let d = read_server_config(&HashMap::new()).unwrap();
+        assert!(!d.discoverability.fallback_relay_urls.is_empty());
     }
 
     #[test]

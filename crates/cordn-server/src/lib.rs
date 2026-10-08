@@ -3,6 +3,7 @@
 //! config in [`config`]; the rmcp tool glue + bin entrypoint are added alongside.
 
 pub mod adapter;
+pub mod announce;
 pub mod config;
 
 #[cfg(feature = "server")]
@@ -14,4 +15,8 @@ pub mod runtime;
 pub use methods::CordnServer;
 
 pub use adapter::{AdapterError, CoordinatorAdapter, MessageSink, Now};
-pub use config::{load as load_config, read_server_config, AbuseProtectionConfig, ServerConfig};
+pub use announce::{SelfEvent, SelfPublisher};
+pub use config::{
+    load as load_config, read_server_config, AbuseProtectionConfig, DiscoverabilityConfig,
+    ServerConfig,
+};

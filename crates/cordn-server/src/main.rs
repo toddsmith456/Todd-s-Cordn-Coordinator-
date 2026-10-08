@@ -5,7 +5,7 @@
 use anyhow::{Context, Result};
 
 use cordn_server::{
-    config,
+    announce, config,
     runtime::{self, ServerIdentity},
 };
 
@@ -26,14 +26,23 @@ async fn main() -> Result<()> {
     let cfg = config::load().context("reading cordn server config")?;
     let relay_urls = cfg.relay_urls.clone();
     let announced = cfg.is_announced;
+    let advertised = announce::advertised_relay_urls(&cfg);
+    let publish_targets = announce::publish_targets(&cfg);
+    let publishes: Vec<u16> = announce::self_events(&cfg).iter().map(|e| e.kind).collect();
     let server = runtime::start(cfg).await?;
 
-    print_banner(server.identity(), &relay_urls);
+    print_banner(server.identity(), &relay_urls, &advertised, &publishes);
     tracing::info!(
         relays = ?relay_urls,
         announced,
         server_pubkey = %server.identity().public_key,
         "ContextVM MLS coordinator server starting (relay connection completes in the background)"
+    );
+    tracing::info!(
+        kinds = ?publishes,
+        advertised = ?advertised,
+        to = ?publish_targets,
+        "publishing where this coordinator can be reached"
     );
 
     server
@@ -63,7 +72,12 @@ async fn shutdown_signal() {
     }
 }
 
-fn print_banner(identity: &ServerIdentity, relay_urls: &[String]) {
+fn print_banner(
+    identity: &ServerIdentity,
+    relay_urls: &[String],
+    advertised: &[String],
+    publishes: &[u16],
+) {
     let rule: String = "═".repeat(68);
     let relay_lines = if relay_urls.is_empty() {
         "     (none configured)".to_string()
@@ -86,6 +100,22 @@ fn print_banner(identity: &ServerIdentity, relay_urls: &[String]) {
     println!("   nprofile  {}", identity.nprofile);
     println!("\n   📡  relays");
     println!("{relay_lines}");
+    // What a client holding only the pubkey can learn about this server. Without
+    // the kind 10002 it has to be told the relays some other way.
+    println!("\n   📣  published about this server");
+    if publishes.is_empty() {
+        println!(
+            "     (nothing — CORDN_PUBLISH_RELAY_LIST and CORDN_PUBLISH_PROFILE are both off)"
+        );
+    } else {
+        for kind in publishes {
+            match kind {
+                0 => println!("     • kind 0 profile (name, about, website)"),
+                10002 => println!("     • kind 10002 relay list → {}", advertised.join(", ")),
+                other => println!("     • kind {other}"),
+            }
+        }
+    }
     println!("\n   🌐  add in cordn.net");
     println!("     {coordinator_url}");
     println!();
