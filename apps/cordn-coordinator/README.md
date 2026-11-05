@@ -74,7 +74,7 @@ icons, UI, plugin/JNI namespaces, and coordinator behavior remain unchanged.
 Android isolates each installation's files, database, and Keystore identity.
 
 The release workflow requires the repository Actions secret
-`CORDN_SIGNING_BUNDLE`: a JSON object containing `keystore_base64`,
+`CORDNSIGNINGBUNDLE` (also accepts `CORDN_SIGNING_BUNDLE`): a JSON object containing `keystore_base64`,
 `store_password`, `key_alias`, and `key_password`. Keep the private keystore
 backup out of Git and retain it securely: updates require the same signing key.
 The workflow verifies both the fork's package ID and its signing certificate.

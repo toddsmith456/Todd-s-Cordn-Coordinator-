@@ -40,14 +40,14 @@ jobs:
           targets: aarch64-linux-android
       - name: Configure signing key
         env:
-          CORDN_SIGNING_BUNDLE: ${{ secrets.CORDN_SIGNING_BUNDLE }}
+          CORDN_SIGNING_BUNDLE: ${{ secrets.CORDNSIGNINGBUNDLE || secrets.CORDN_SIGNING_BUNDLE }}
         shell: python
         run: |
           import base64, json, os
           from pathlib import Path
           raw = os.environ.get("CORDN_SIGNING_BUNDLE", "")
           if not raw:
-              print("::error::Missing repository secret CORDN_SIGNING_BUNDLE. Add it under Settings > Secrets and variables > Actions.")
+              print("::error::Missing Actions repository secret CORDNSIGNINGBUNDLE (or CORDN_SIGNING_BUNDLE).")
               raise SystemExit(1)
           try:
               bundle = json.loads(raw)
