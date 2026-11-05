@@ -56,8 +56,8 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-      - uses: android-actions/setup-android@v3
-      - run: sdkmanager "platforms;android-36" "ndk;27.3.13750724"
+      - name: Install Android SDK components
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "ndk;27.3.13750724"'
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-linux-android
