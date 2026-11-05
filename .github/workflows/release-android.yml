@@ -47,8 +47,17 @@ jobs:
           from pathlib import Path
           raw = os.environ.get("CORDN_SIGNING_BUNDLE", "")
           if not raw:
-              raise SystemExit("Missing repository secret: CORDN_SIGNING_BUNDLE")
-          bundle = json.loads(raw)
+              print("::error::Missing repository secret CORDN_SIGNING_BUNDLE. Add it under Settings > Secrets and variables > Actions.")
+              raise SystemExit(1)
+          try:
+              bundle = json.loads(raw)
+          except json.JSONDecodeError:
+              print("::error::CORDN_SIGNING_BUNDLE is not valid JSON. Paste the entire contents of CORDN_SIGNING_BUNDLE.txt, not its filename or the ZIP file.")
+              raise SystemExit(1)
+          required = {"keystore_base64", "store_password", "key_alias", "key_password"}
+          if not isinstance(bundle, dict) or not required.issubset(bundle):
+              print("::error::CORDN_SIGNING_BUNDLE is missing required signing fields. Paste the entire original text file.")
+              raise SystemExit(1)
           path = Path(os.environ["RUNNER_TEMP"]) / "todd-cordn-release.p12"
           path.write_bytes(base64.b64decode(bundle["keystore_base64"], validate=True))
           path.chmod(0o600)
