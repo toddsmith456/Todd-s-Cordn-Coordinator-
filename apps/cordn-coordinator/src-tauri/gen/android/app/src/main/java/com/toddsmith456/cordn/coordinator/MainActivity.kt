@@ -1,4 +1,4 @@
-package org.cordn.coordinator
+package com.toddsmith456.cordn.coordinator
 
 import android.os.Bundle
 import androidx.activity.enableEdgeToEdge

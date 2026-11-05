@@ -68,33 +68,20 @@ the arm64 APK to its own GitHub Release. The tag semver is the app's
 `versionName`; the app versioning is independent of the server's parity tags.
 Server releases (`v*` tags) never build an APK and vice versa.
 
-The workflow intentionally reuses the Cordn release identity already used by
-`cordn-web`. Give this repository access to the same
-organization secrets, or copy the existing values into repository secrets:
+This fork uses Android application ID `com.toddsmith456.cordn.coordinator`,
+so it installs alongside the original `org.cordn.coordinator`. The app name,
+icons, UI, plugin/JNI namespaces, and coordinator behavior remain unchanged.
+Android isolates each installation's files, database, and Keystore identity.
 
-- `CORDN_KEYSTORE_BASE64`
-- `CORDN_KEYSTORE_PASSWORD`
-- `CORDN_KEY_ALIAS`
-- `CORDN_KEY_PASSWORD`
+The release workflow requires the repository Actions secret
+`CORDN_SIGNING_BUNDLE`: a JSON object containing `keystore_base64`,
+`store_password`, `key_alias`, and `key_password`. Keep the private keystore
+backup out of Git and retain it securely: updates require the same signing key.
+The workflow verifies both the fork's package ID and its signing certificate.
 
-GitHub does not expose existing secret values, so repository-scoped secrets in
-`cordn-web` cannot be read or copied by this workflow; use the offline keystore
-backup or make the secrets organization-scoped for both repositories. CI rejects
-any APK whose signing-certificate SHA-256 is not Cordn's published fingerprint:
-`a6626cfca551c5605f0af450c6bf6d831fc70eb2dcd17f027eb358c56852758f`.
-Losing or changing that keystore prevents future APKs from updating existing
-installs.
+Fork signing-certificate SHA-256:
+`80f84f7d629664ebeca758e31b8a1e712c10d89f6efebec4dca2bb37ef0997d2`.
 
-## Zapstore publishing
-
-Manual, from a checkout (the signing key never enters CI):
-
-```bash
-SIGN_WITH=nsec1… zsp publish zapstore.yaml     # repo root; fetches the latest release's arm64 APK
-```
-
-Run it right after an `android-v*` release so the latest release is the APK
-lane. If a server release landed in between, publish the APK explicitly:
-`zsp publish <apk> -r github.com/Cordn-msg/cordn-rs`. The publisher identity
-is pinned in the root `zapstore.yaml` (same Cordn key as `cordn-web`, so the
-keystore→identity certificate link already exists).
+The upstream Cordn signing key and Zapstore publisher identity are not used
+by this fork. The root `zapstore.yaml` describes upstream distribution; do not
+publish this fork using upstream's identity.

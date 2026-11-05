@@ -36,21 +36,35 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
-      - name: Configure signing and version
+      - name: Configure signing key
         env:
-          CORDN_KEYSTORE_PATH: ${{ runner.temp }}/cordn-release.keystore
-          CORDN_KEYSTORE_BASE64: ${{ secrets.CORDN_KEYSTORE_BASE64 }}
-          CORDN_KEYSTORE_PASSWORD: ${{ secrets.CORDN_KEYSTORE_PASSWORD }}
-          CORDN_KEY_ALIAS: ${{ secrets.CORDN_KEY_ALIAS }}
-          CORDN_KEY_PASSWORD: ${{ secrets.CORDN_KEY_PASSWORD }}
+          CORDN_SIGNING_BUNDLE: ${{ secrets.CORDN_SIGNING_BUNDLE }}
+        shell: python
+        run: |
+          import base64, json, os
+          from pathlib import Path
+          raw = os.environ.get("CORDN_SIGNING_BUNDLE", "")
+          if not raw:
+              raise SystemExit("Missing repository secret: CORDN_SIGNING_BUNDLE")
+          bundle = json.loads(raw)
+          path = Path(os.environ["RUNNER_TEMP"]) / "todd-cordn-release.p12"
+          path.write_bytes(base64.b64decode(bundle["keystore_base64"], validate=True))
+          path.chmod(0o600)
+          values = {
+              "CORDN_KEYSTORE_PATH": str(path),
+              "CORDN_KEYSTORE_PASSWORD": bundle["store_password"],
+              "CORDN_KEY_ALIAS": bundle["key_alias"],
+              "CORDN_KEY_PASSWORD": bundle["key_password"],
+          }
+          with open(os.environ["GITHUB_ENV"], "a") as out:
+              for name, value in values.items():
+                  if not value or "\n" in value or "\r" in value:
+                      raise SystemExit("Invalid signing bundle field: " + name)
+                  print("::add-mask::" + value)
+                  out.write(name + "=" + value + "\n")
+      - name: Configure version
         run: |
           set -euo pipefail
-          for value in CORDN_KEYSTORE_BASE64 CORDN_KEYSTORE_PASSWORD CORDN_KEY_ALIAS CORDN_KEY_PASSWORD; do
-            test -n "${!value:-}" || { echo "missing GitHub secret: $value" >&2; exit 1; }
-          done
-          printf '%s' "$CORDN_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > "$CORDN_KEYSTORE_PATH"
-          test -s "$CORDN_KEYSTORE_PATH"
-
           version="${GITHUB_REF_NAME#android-v}"
           core="${version%%-*}"
           IFS=. read -r major minor patch <<< "$core"
@@ -63,11 +77,6 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build signed APK
         working-directory: apps/cordn-coordinator
-        env:
-          CORDN_KEYSTORE_PATH: ${{ runner.temp }}/cordn-release.keystore
-          CORDN_KEYSTORE_PASSWORD: ${{ secrets.CORDN_KEYSTORE_PASSWORD }}
-          CORDN_KEY_ALIAS: ${{ secrets.CORDN_KEY_ALIAS }}
-          CORDN_KEY_PASSWORD: ${{ secrets.CORDN_KEY_PASSWORD }}
         run: pnpm exec tauri android build --apk --target aarch64 --ci
       - name: Verify and package APK
         working-directory: apps/cordn-coordinator
@@ -79,9 +88,11 @@ jobs:
           signer="$ANDROID_HOME/build-tools/36.0.0/apksigner"
           details="$("$signer" verify --verbose --print-certs "$output")"
           printf '%s\n' "$details"
+          package="$("$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$output" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")"
+          test "$package" = "com.toddsmith456.cordn.coordinator" || { echo "Unexpected APK package: $package" >&2; exit 1; }
           actual="$(printf '%s\n' "$details" | awk -F': ' '/Signer #1 certificate SHA-256 digest/{print $2}')"
-          expected="a6626cfca551c5605f0af450c6bf6d831fc70eb2dcd17f027eb358c56852758f"
-          test "$actual" = "$expected" || { echo "APK was not signed by the Cordn release key" >&2; exit 1; }
+          expected="80f84f7d629664ebeca758e31b8a1e712c10d89f6efebec4dca2bb37ef0997d2"
+          test "$actual" = "$expected" || { echo "APK was not signed by the Todd fork release key" >&2; exit 1; }
       - uses: actions/upload-artifact@v4
         with:
           name: cordn-coordinator-android-arm64

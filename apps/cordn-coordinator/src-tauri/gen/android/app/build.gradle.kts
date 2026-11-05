@@ -15,10 +15,10 @@ val tauriProperties = Properties().apply {
 
 android {
     compileSdk = 36
-    namespace = "org.cordn.coordinator"
+    namespace = "com.toddsmith456.cordn.coordinator"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
-        applicationId = "org.cordn.coordinator"
+        applicationId = "com.toddsmith456.cordn.coordinator"
         minSdk = 24
         targetSdk = 36
         versionCode = System.getenv("CORDN_ANDROID_VERSION_CODE")?.toInt()
