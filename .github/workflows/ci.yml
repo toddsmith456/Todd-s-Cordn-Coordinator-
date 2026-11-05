@@ -13,7 +13,7 @@ jobs:
   # cordn-server's rmcp-free adapter/config/tests. The rmcp glue (methods.rs /
   # main.rs) is covered by the `server` job below.
   lint-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -29,7 +29,7 @@ jobs:
   # The full server binary: rmcp glue + contextvm-sdk (from crates.io since
   # 0.2.1). Lints + compiles methods.rs / main.rs.
   server:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -41,7 +41,7 @@ jobs:
   # The Android product shell is a separate Cargo workspace, so verify it
   # explicitly without pulling Tauri/Gradle into the root Rust jobs.
   android:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -70,7 +70,7 @@ jobs:
 
   # Guard the declared MSRV (rust-version = "1.88").
   msrv:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.88.0

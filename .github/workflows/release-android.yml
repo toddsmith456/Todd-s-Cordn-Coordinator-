@@ -16,7 +16,7 @@ permissions:
 jobs:
   android:
     name: build (Android arm64 APK)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -77,7 +77,21 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build signed APK
         working-directory: apps/cordn-coordinator
-        run: pnpm exec tauri android build --apk --target aarch64 --ci
+        run: |
+          set -o pipefail
+          pnpm exec tauri android build --apk --target aarch64 --ci 2>&1 | tee "$RUNNER_TEMP/android-build.log"
+      - name: Report build failure diagnostics
+        if: failure()
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          log = Path(os.environ["RUNNER_TEMP"]) / "android-build.log"
+          if log.exists():
+              for line in log.read_text(errors="replace").splitlines()[-60:]:
+                  escaped = line.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+                  print("::error title=Android build diagnostic::" + escaped)
+
       - name: Verify and package APK
         working-directory: apps/cordn-coordinator
         run: |
@@ -100,7 +114,7 @@ jobs:
 
   release:
     needs: [android]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
