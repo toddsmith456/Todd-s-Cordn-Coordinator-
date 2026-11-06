@@ -280,7 +280,7 @@ dependencies = [
 [[package]]
 name = "contextvm-sdk"
 version = "0.2.2"
-source = "git+https://github.com/Cordn-msg/cordn-rs.git?rev=0cefd28e39ad0c4ec17870b1bc7c223c380919a4#0cefd28e39ad0c4ec17870b1bc7c223c380919a4"
+source = "git+https://github.com/toddsmith456/Todd-s-Cordn-Coordinator-.git?rev=a95a543e9555940c0065197b793cb239f321cd2f#a95a543e9555940c0065197b793cb239f321cd2f"
 dependencies = [
  "async-trait",
  "futures",

@@ -22,6 +22,8 @@ export type ServiceDiagnostics = {
 };
 
 export type ServiceStatus = {
+    healthLabel?: string;
+    health?: { updatedAt: number; startedAt: number; loopAgeMs: number; connectedRelays: number; totalRelays: number; rejectedSubscriptions: number; subscriptionRepairs: number; lastRequestAt?: number; lastRelayAckAt?: number; criticalTaskFailed: boolean };
 	state: 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
 	publicKey?: string;
 	lastError?: string;

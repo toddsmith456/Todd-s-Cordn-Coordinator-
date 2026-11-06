@@ -20,6 +20,8 @@ use tokio::sync::oneshot;
 
 use crate::{CoordinatorConfig, EncodePubkeyRequest, PubkeyDisplay, ServiceStatus};
 
+static STOP_REQUESTED: AtomicBool = AtomicBool::new(false);
+static NETWORK_CHANGED: AtomicBool = AtomicBool::new(false);
 static RUNNING: AtomicBool = AtomicBool::new(false);
 static STOP: Mutex<Option<oneshot::Sender<()>>> = Mutex::new(None);
 static LOGGING: Once = Once::new();
@@ -82,9 +84,26 @@ pub extern "system" fn Java_org_cordn_coordinator_service_CordnNative_stopCoordi
     _env: JNIEnv,
     _object: JObject,
 ) {
+    STOP_REQUESTED.store(true, Ordering::SeqCst);
     if let Some(stop) = STOP.lock().unwrap().take() {
         let _ = stop.send(());
     }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_cordn_coordinator_service_CordnNative_networkChanged(
+    _env: JNIEnv,
+    _object: JObject,
+) {
+    NETWORK_CHANGED.store(true, Ordering::Relaxed);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_cordn_coordinator_service_CordnNative_prepareStart(
+    _env: JNIEnv,
+    _object: JObject,
+) {
+    STOP_REQUESTED.store(false, Ordering::SeqCst);
 }
 
 fn init_logging(data_dir: &Path) {
@@ -123,6 +142,12 @@ fn run_coordinator(
     let status_path = data_dir.join("cordn-status.json");
     let (stop_tx, stop_rx) = oneshot::channel();
     *STOP.lock().unwrap() = Some(stop_tx);
+    // A Stop arriving before the native thread registered its channel must win too.
+    if STOP_REQUESTED.load(Ordering::SeqCst) {
+        if let Some(stop) = STOP.lock().unwrap().take() {
+            let _ = stop.send(());
+        }
+    }
 
     let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -133,6 +158,8 @@ fn run_coordinator(
             .await
             .map_err(|error| format!("{error:#}"))?;
         let identity = server.identity().clone();
+        let health = server.health();
+        let health_path = data_dir.join("cordn-health.json");
         write_status(
             &status_path,
             &ServiceStatus {
@@ -140,14 +167,28 @@ fn run_coordinator(
                 public_key: Some(identity.public_key),
                 last_error: None,
                 battery_exempt: false,
+                ..ServiceStatus::default()
             },
         )?;
-        server
-            .run_until(async {
-                let _ = stop_rx.await;
-            })
-            .await
-            .map_err(|error| format!("{error:#}"))
+        let running = server.run_until(async { let _ = stop_rx.await; });
+        tokio::pin!(running);
+        let mut timer = tokio::time::interval(std::time::Duration::from_secs(15));
+        timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                result = &mut running => break result.map_err(|_| "Coordinator transport exited; local recovery may retry".to_string()),
+                _ = timer.tick() => {
+                    if NETWORK_CHANGED.swap(false, Ordering::Relaxed) { health.network_changed(); }
+                    // Atomic, fixed-size metadata snapshot, overwritten rather than accumulated.
+                    if let Ok(bytes) = serde_json::to_vec(&health.snapshot()) {
+                        let temporary = health_path.with_extension("tmp");
+                        if std::fs::write(&temporary, bytes).is_ok() {
+                            let _ = std::fs::rename(temporary, &health_path);
+                        }
+                    }
+                }
+            }
+        }
     });
 
     match result {
@@ -160,6 +201,7 @@ fn run_coordinator(
                     public_key: None,
                     last_error: Some(error.clone()),
                     battery_exempt: false,
+                    ..ServiceStatus::default()
                 },
             );
             Err(error)

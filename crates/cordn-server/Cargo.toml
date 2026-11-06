@@ -31,7 +31,7 @@ tracing = "0.1"
 # previously hit the fresh rmcp session before `initialize` and killed the
 # coordinator.
 # ponytail: flip back to a released version (>=0.2.3) once published upstream.
-contextvm-sdk = { git = "https://github.com/Cordn-msg/cordn-rs.git", rev = "0cefd28e39ad0c4ec17870b1bc7c223c380919a4", optional = true }
+contextvm-sdk = { git = "https://github.com/toddsmith456/Todd-s-Cordn-Coordinator-.git", rev = "a95a543e9555940c0065197b793cb239f321cd2f", optional = true }
 rmcp = { version = "1.8", features = ["server", "macros"], optional = true }
 schemars = { version = "1", optional = true }
 anyhow = { version = "1", optional = true }

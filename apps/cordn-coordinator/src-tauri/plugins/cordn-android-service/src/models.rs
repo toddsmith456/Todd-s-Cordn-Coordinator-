@@ -62,6 +62,10 @@ pub struct StartRequest {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ServiceStatus {
+    #[serde(default)]
+    pub health_label: Option<String>,
+    #[serde(default)]
+    pub health: Option<serde_json::Value>,
     pub state: String,
     pub public_key: Option<String>,
     pub last_error: Option<String>,
@@ -71,6 +75,8 @@ pub struct ServiceStatus {
 impl Default for ServiceStatus {
     fn default() -> Self {
         Self {
+            health_label: None,
+            health: None,
             state: "stopped".into(),
             public_key: None,
             last_error: None,

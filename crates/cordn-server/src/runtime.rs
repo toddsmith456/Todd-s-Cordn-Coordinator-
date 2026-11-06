@@ -29,12 +29,18 @@ pub struct ServerIdentity {
 
 pub struct RunningServer {
     identity: ServerIdentity,
+    health: contextvm_sdk::transport::server::ServerHealth,
     coordinator: Arc<Coordinator>,
     cancellation: CancellationToken,
     task: Option<JoinHandle<Result<()>>>,
 }
 
 impl RunningServer {
+    /// Local metadata only; not a client-delivery guarantee.
+    pub fn health(&self) -> contextvm_sdk::transport::server::ServerHealth {
+        self.health.clone()
+    }
+
     pub fn identity(&self) -> &ServerIdentity {
         &self.identity
     }
@@ -111,8 +117,10 @@ pub async fn start(cfg: ServerConfig) -> Result<RunningServer> {
     let transport = NostrServerTransport::new(signer, build_transport_config(&cfg))
         .await
         .context("creating ContextVM server transport")?;
+    let health = transport.health();
     let cancellation = CancellationToken::new();
     let task_cancellation = cancellation.clone();
+    let task_health = health.clone();
     let task = tokio::spawn(async move {
         let service = match CordnServer::new(adapter)
             .serve_with_ct(transport, task_cancellation.clone())
@@ -126,11 +134,15 @@ pub async fn start(cfg: ServerConfig) -> Result<RunningServer> {
             .waiting()
             .await
             .context("waiting for cordn server")?;
+        if !task_cancellation.is_cancelled() && task_health.snapshot().critical_task_failed {
+            anyhow::bail!("critical transport task exited");
+        }
         Ok(())
     });
 
     Ok(RunningServer {
         identity,
+        health,
         coordinator,
         cancellation,
         task: Some(task),

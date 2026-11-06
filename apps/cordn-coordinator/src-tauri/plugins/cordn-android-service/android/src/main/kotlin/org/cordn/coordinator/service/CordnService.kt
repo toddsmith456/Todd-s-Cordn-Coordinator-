@@ -23,12 +23,47 @@ internal class CordnService : Service() {
     private val native = CordnNative()
     private val workerRunning = AtomicBoolean(false)
 
+    private val handler = Handler(Looper.getMainLooper())
+    private val recoveryPolicy = RecoveryPolicy()
+    private var recoveryPending = false
+    private var lastNetwork: android.net.Network? = null
+    private var networkCallback: android.net.ConnectivityManager.NetworkCallback? = null
+    private var notificationText = "Starting coordinator…"
+    private val healthTick = object : Runnable {
+        override fun run() {
+            if (workerRunning.get()) {
+                val state = runCatching { JSONObject(File(noBackupFilesDir, "cordn-status.json").readText()).optString("state") }.getOrDefault("starting")
+                val label = CoordinatorHealth.label(state, CoordinatorHealth.read(noBackupFilesDir))
+                if (notificationText != label) { notificationText = label; promoteToForeground() }
+            }
+            handler.postDelayed(this, 30_000L)
+        }
+    }
     private var restartRequested = false
     private var restartWakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        handler.post(healthTick)
+        val manager = getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        val callback = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onCapabilitiesChanged(network: android.net.Network, caps: android.net.NetworkCapabilities) {
+                if (caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                    handler.post {
+                        if (lastNetwork != network) {
+                            lastNetwork = network
+                            if (workerRunning.get() && !recoveryPolicy.stopped) native.networkChanged()
+                        }
+                    }
+                }
+            }
+            override fun onLost(network: android.net.Network) {
+                handler.post { if (lastNetwork == network) lastNetwork = null }
+            }
+        }
+        runCatching { manager.registerDefaultNetworkCallback(callback); networkCallback = callback }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -36,7 +71,7 @@ internal class CordnService : Service() {
 
         if (intent?.action == ACTION_RESTART) {
             runCatching { RestartSchedule.schedule(this) }
-            if (workerRunning.get() && !restartRequested && RestartSchedule.read(this).optBoolean("enabled") && RestartSchedule.allowed(this)) {
+            if (!recoveryPolicy.stopped && workerRunning.get() && !restartRequested && RestartSchedule.read(this).optBoolean("enabled") && RestartSchedule.allowed(this)) {
                 restartRequested = true
                 restartWakeLock = (getSystemService(POWER_SERVICE) as PowerManager)
                     .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:scheduled-restart")
@@ -51,6 +86,8 @@ internal class CordnService : Service() {
         }
 
         if (intent?.action == ACTION_STOP) {
+            recoveryPolicy.stopped = true
+            recoveryPending = false
             restartRequested = false
             if (workerRunning.get()) {
                 writeStatus("stopping")
@@ -63,6 +100,8 @@ internal class CordnService : Service() {
             return START_NOT_STICKY
         }
 
+        recoveryPolicy.stopped = false
+        recoveryPending = false
         startWorker(intent)
         return START_STICKY
     }
@@ -75,6 +114,7 @@ internal class CordnService : Service() {
                 ?: readConfig()
             val privateKey = IdentityStore(this).getOrCreate(intent?.getStringExtra(EXTRA_PRIVATE_KEY))
             writeStatus("starting")
+            native.prepareStart()
             Thread(
                 {
                     val error = native.runCoordinator(
@@ -84,12 +124,25 @@ internal class CordnService : Service() {
                     )
                     Handler(Looper.getMainLooper()).post {
                         workerRunning.set(false)
-                        if (restartRequested) {
+                        if (restartRequested && !recoveryPolicy.stopped) {
                             restartRequested = false
                             startWorker(null)
                             Handler(Looper.getMainLooper()).postDelayed({ releaseRestartWakeLock() }, 30_000L)
+                        } else if (error != null && !recoveryPolicy.stopped && allowRecovery()) {
+                            // Only after the native call has returned: no duplicate database writers.
+                            recoveryPending = true
+                            writeStatus("starting")
+                            notificationText = "Recovering coordinator — retrying in 60 seconds"
+                            promoteToForeground()
+                            releaseRestartWakeLock()
+                            handler.postDelayed({
+                                if (recoveryPending && !recoveryPolicy.stopped && !workerRunning.get()) {
+                                    recoveryPending = false
+                                    startWorker(null)
+                                }
+                            }, 60_000L)
                         } else {
-                            if (error != null) writeStatus("error", error) else writeStatus("stopped")
+                            if (error != null && !recoveryPolicy.stopped) writeStatus("error", "Coordinator exited; retry budget reached. Start manually to retry.") else writeStatus("stopped")
                             releaseRestartWakeLock()
                             stopForeground(STOP_FOREGROUND_REMOVE)
                             stopSelf()
@@ -108,12 +161,20 @@ internal class CordnService : Service() {
 
     }
 
+    private fun allowRecovery(): Boolean = recoveryPolicy.allowRecovery(android.os.SystemClock.elapsedRealtime())
+
     private fun releaseRestartWakeLock() {
         restartWakeLock?.let { if (it.isHeld) it.release() }
         restartWakeLock = null
     }
 
     override fun onDestroy() {
+        recoveryPolicy.stopped = true
+        recoveryPending = false
+        handler.removeCallbacksAndMessages(null)
+        networkCallback?.let { callback ->
+            runCatching { (getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager).unregisterNetworkCallback(callback) }
+        }
         restartRequested = false
         releaseRestartWakeLock()
         if (workerRunning.get()) native.stopCoordinator()
@@ -140,8 +201,9 @@ internal class CordnService : Service() {
         )
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_cordn)
-            .setContentTitle("Cordn coordinator is running")
-            .setContentText("Connected through the configured Nostr relays")
+            .setContentTitle("Cordn coordinator")
+            .setContentText(notificationText)
+            .setOnlyAlertOnce(true)
             .setContentIntent(openPendingIntent)
             .setCategory(Notification.CATEGORY_SERVICE)
             .setOngoing(true)

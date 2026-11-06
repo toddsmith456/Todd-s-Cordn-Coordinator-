@@ -72,6 +72,8 @@
 	let qrSvg = $state('');
 	let dangerConfirm = $state<'' | 'flush' | 'reset'>('');
 	let dangerTimer = 0;
+	let statusUnavailable = $state(false);
+    let healthLabel = $derived(statusUnavailable ? 'Status unavailable — check connection to service' : status.healthLabel ?? status.state);
 	let active = $derived(['starting', 'running', 'stopping'].includes(status.state));
 	const relaysList = $derived(
 		relays
@@ -128,8 +130,9 @@
 	async function refresh() {
 		try {
 			status = await getStatus();
+            statusUnavailable = false;
 		} catch {
-			// The Activity can briefly lose its plugin bridge while resuming.
+			statusUnavailable = true;
 		}
 		if (diagnosticsOpen) await refreshDiagnostics();
 	}
@@ -309,17 +312,17 @@
 			<p class="eyebrow">CORDN</p>
 			<h1>Coordinator</h1>
 		</div>
-		<div class:running={status.state === 'running'} class="status-dot" title={status.state}></div>
+		<div class:running={status.state === 'running' && !statusUnavailable && healthLabel.startsWith('Relay connected')} class="status-dot" title={status.state}></div>
 	</header>
 
 	<section class="status-card" aria-live="polite">
 		<div class="status-heading">
 			<div>
 				<p class="label">Status</p>
-				<strong>{status.state}</strong>
+				<strong>{healthLabel}</strong>
 				<p class="status-copy">
 					{status.state === 'running'
-						? 'Ready to coordinate MLS delivery'
+						? 'Local transport status only. Relay acknowledgement does not prove client receipt.'
 						: status.state === 'starting'
 							? 'Starting the background service…'
 							: status.state === 'stopping'
@@ -344,6 +347,10 @@
 			</button>
 		{/if}
 
+        {#if status.state === 'running' && status.health}
+            <p class="status-copy">Relays: {status.health.connectedRelays}/{status.health.totalRelays} · Rejected subscriptions: {status.health.rejectedSubscriptions} · Retry attempts: {status.health.subscriptionRepairs}</p>
+            <p class="status-copy">Last request: {status.health.lastRequestAt ? new Date(status.health.lastRequestAt).toLocaleString() : 'None observed'} · Last relay acknowledgement: {status.health.lastRelayAckAt ? new Date(status.health.lastRelayAckAt).toLocaleString() : 'None observed'}</p>
+        {/if}
 		{#if status.publicKey}
 			<div class="identity">
 				<div class="identity-head">

@@ -108,7 +108,7 @@ class CordnServicePlugin(private val activity: Activity) : Plugin(activity) {
             )
             val running = statusFile.exists() &&
                 JSONObject(statusFile.readText()).optString("state") == "running"
-            response.put("startedAt", if (running) statusFile.lastModified() else JSONObject.NULL)
+            response.put("startedAt", if (running) CoordinatorHealth.read(activity.noBackupFilesDir)?.optLong("startedAt") ?: JSONObject.NULL else JSONObject.NULL)
 
             val tables = mapOf(
                 "keyPackages" to "key_packages",
@@ -193,6 +193,9 @@ class CordnServicePlugin(private val activity: Activity) : Plugin(activity) {
         for (key in listOf("publicKey", "lastError")) {
             if (stored.has(key) && !stored.isNull(key)) response.put(key, stored.get(key))
         }
+        val health = CoordinatorHealth.read(activity.noBackupFilesDir)
+        response.put("healthLabel", CoordinatorHealth.label(state, health))
+        if (state == "running" && health != null) response.put("health", health)
         response.put("batteryExempt", batteryExempt())
         return response
     }
