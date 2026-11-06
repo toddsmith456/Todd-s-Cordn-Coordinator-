@@ -26,12 +26,37 @@ class StartArgs {
     var privateKeyHex: String? = null
 }
 
+@InvokeArg
+class ScheduleArgs {
+    var operation: String = "get"
+    var enabled: Boolean = false
+    var times: Array<String> = arrayOf("03:00")
+}
+
 @TauriPlugin(
     permissions = [
         Permission(strings = [Manifest.permission.POST_NOTIFICATIONS], alias = "postNotifications"),
     ],
 )
 class CordnServicePlugin(private val activity: Activity) : Plugin(activity) {
+    @Command
+    fun restartSchedule(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(ScheduleArgs::class.java)
+            when (args.operation) {
+                "save" -> RestartSchedule.save(activity, args.enabled, args.times.toList())
+                "permission" -> if (android.os.Build.VERSION.SDK_INT >= 31 && !RestartSchedule.allowed(activity)) {
+                    activity.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${activity.packageName}")))
+                }
+                "get" -> RestartSchedule.schedule(activity)
+                else -> throw IllegalArgumentException("Unknown schedule operation")
+            }
+            invoke.resolve(JSObject(RestartSchedule.response(activity).toString()))
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: error.toString())
+        }
+    }
+
     @Command
     fun start(invoke: Invoke) {
         try {

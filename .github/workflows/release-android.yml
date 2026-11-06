@@ -1,7 +1,7 @@
 name: Release (Android)
 
 # Android lane: triggered by `android-vX.Y.Z` tags (prerelease: hyphenated,
-# e.g. `android-v0.6.0-next.1`). Builds, signs, and attaches only the arm64
+# e.g. `android-v0.6.0-next.1`). Builds, signs, and attaches arm64, armv7, and x86_64
 # APK to its own GitHub Release. The tag semver is the app's versionName —
 # the app versioning is independent of the server lane's parity `v*` tags.
 
@@ -15,8 +15,15 @@ permissions:
 
 jobs:
   android:
-    name: build (Android arm64 APK)
+    name: build (Android ${{ matrix.abi }} APK)
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: aarch64, rust: aarch64-linux-android, abi: arm64 }
+          - { target: armv7, rust: armv7-linux-androideabi, abi: armv7 }
+          - { target: x86_64, rust: x86_64-linux-android, abi: x86_64 }
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -37,7 +44,7 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" "ndk;27.3.13750724" 2>&1 | tee "$RUNNER_TEMP/android-build.log"
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android
+          targets: ${{ matrix.rust }}
       - name: Configure signing key
         env:
           CORDN_SIGNING_BUNDLE: ${{ secrets.CORDNSIGNINGBUNDLE || secrets.CORDN_SIGNING_BUNDLE }}
@@ -86,11 +93,19 @@ jobs:
           echo "CORDN_ANDROID_VERSION_CODE=$version_code" >> "$GITHUB_ENV"
       - working-directory: apps/cordn-coordinator
         run: pnpm install --frozen-lockfile
+      - name: Check frontend
+        working-directory: apps/cordn-coordinator
+        run: pnpm check
       - name: Build signed APK
         working-directory: apps/cordn-coordinator
         run: |
           set -o pipefail
-          pnpm exec tauri android build --apk --target aarch64 --ci 2>&1 | tee "$RUNNER_TEMP/android-build.log"
+          pnpm exec tauri android build --apk --target ${{ matrix.target }} --ci 2>&1 | tee "$RUNNER_TEMP/android-build.log"
+      - name: Test Android scheduler
+        working-directory: apps/cordn-coordinator/src-tauri/gen/android
+        run: |
+          set -o pipefail
+          ./gradlew :tauri-plugin-cordn-android-service:testDebugUnitTest 2>&1 | tee "$RUNNER_TEMP/android-build.log"
       - name: Report build failure diagnostics
         if: failure()
         shell: python
@@ -108,7 +123,7 @@ jobs:
         run: |
           apk="$(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*-release.apk' ! -name '*unsigned*' -print -quit)"
           test -n "$apk"
-          output="cordn-coordinator-${GITHUB_REF_NAME}-android-arm64.apk"
+          output="cordn-coordinator-${GITHUB_REF_NAME}-android-${{ matrix.abi }}.apk"
           cp "$apk" "$output"
           signer="$ANDROID_HOME/build-tools/36.0.0/apksigner"
           details="$("$signer" verify --verbose --print-certs "$output")"
@@ -120,8 +135,8 @@ jobs:
           test "$actual" = "$expected" || { echo "APK was not signed by the Todd fork release key" >&2; exit 1; }
       - uses: actions/upload-artifact@v4
         with:
-          name: cordn-coordinator-android-arm64
-          path: apps/cordn-coordinator/cordn-coordinator-*-android-arm64.apk
+          name: cordn-coordinator-android-${{ matrix.abi }}
+          path: apps/cordn-coordinator/cordn-coordinator-*-android-${{ matrix.abi }}.apk
 
   release:
     needs: [android]
@@ -129,22 +144,12 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Prerelease flag (hyphen in the semver part, not the android-v prefix)
-        id: pre
-        run: |
-          v="${GITHUB_REF_NAME#android-v}"
-          if [[ "$v" == *"-"* ]]; then echo "flag=true" >> "$GITHUB_OUTPUT"; else echo "flag=false" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
-      - name: Checksums
-        run: cd artifacts && sha256sum *.apk > SHA256SUMS
-      - name: Create release
-        uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
-          prerelease: ${{ steps.pre.outputs.flag }}
-          files: |
-            artifacts/*.apk
-            artifacts/SHA256SUMS
+      - name: Publish APKs and checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/publish-android-release.py

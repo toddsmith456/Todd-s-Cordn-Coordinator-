@@ -52,6 +52,12 @@ impl<R: Runtime> CordnAndroidService<R> {
             .map_err(Into::into)
     }
 
+    pub fn restart_schedule(&self, payload: serde_json::Value) -> crate::Result<serde_json::Value> {
+        self.0
+            .run_mobile_plugin("restartSchedule", payload)
+            .map_err(Into::into)
+    }
+
     pub fn stop(&self) -> crate::Result<ServiceStatus> {
         self.0.run_mobile_plugin("stop", ()).map_err(Into::into)
     }

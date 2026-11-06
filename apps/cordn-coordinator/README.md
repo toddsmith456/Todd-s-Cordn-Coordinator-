@@ -85,3 +85,23 @@ Fork signing-certificate SHA-256:
 The upstream Cordn signing key and Zapstore publisher identity are not used
 by this fork. The root `zapstore.yaml` describes upstream distribution; do not
 publish this fork using upstream's identity.
+
+## Scheduled restarts (Todd fork 0.5.3)
+
+Open **Scheduled restarts** below the status card. Enable daily restarts,
+choose once or twice daily and local times (at least 15 minutes apart), allow
+Android **Alarms & reminders** if requested, then save. Disabled by default.
+The panel shows the next alarm; saving does not start the coordinator.
+
+Exact `RTC_WAKEUP` alarms use `setExactAndAllowWhileIdle` and reschedule for the
+next local calendar day, including time-zone / daylight-saving changes. Boot,
+app update, clock changes, and exact-alarm permission grants restore alarms.
+A scheduled wakeup restarts only an active coordinator. Manual Stop cancels
+any in-flight restart; boot and scheduled alarms never start a stopped worker.
+Restart waits for the native runtime to exit before reopening the same data
+and identity. A bounded partial wake lock covers the restart handoff.
+
+Android force-stop disables alarms until the app is opened again. OEM power
+restrictions may affect wakeups. Permission revocation disables scheduling;
+re-enable the permission and reopen the app. A nonexistent DST local time is
+normalized by Android's Calendar to the next valid local time.

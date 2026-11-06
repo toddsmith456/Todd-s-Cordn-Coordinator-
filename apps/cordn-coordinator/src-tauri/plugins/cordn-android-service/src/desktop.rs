@@ -20,6 +20,13 @@ impl<R: Runtime> CordnAndroidService<R> {
         Err(crate::Error::Unsupported)
     }
 
+    pub fn restart_schedule(
+        &self,
+        _payload: serde_json::Value,
+    ) -> crate::Result<serde_json::Value> {
+        Err(crate::Error::Unsupported)
+    }
+
     pub fn stop(&self) -> crate::Result<ServiceStatus> {
         Err(crate::Error::Unsupported)
     }

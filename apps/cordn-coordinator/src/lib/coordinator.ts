@@ -86,3 +86,14 @@ export function requestBatteryExemption(): Promise<void> {
 export function requestNotificationPermission(): Promise<void> {
 	return invoke(`${plugin}|request_notification_permission`);
 }
+
+export type RestartSchedule = {
+    enabled: boolean;
+    times: string[];
+    exactAlarmAllowed: boolean;
+    nextAlarm: number | null;
+};
+
+export function restartSchedule(operation: 'get' | 'save' | 'permission' = 'get', enabled = false, times = ['03:00']): Promise<RestartSchedule> {
+    return invoke(`${plugin}|restart_schedule`, { payload: { operation, enabled, times } });
+}

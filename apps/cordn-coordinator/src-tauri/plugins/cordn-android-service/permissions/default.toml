@@ -2,6 +2,7 @@
 description = "Control and inspect the local cordn coordinator service"
 permissions = [
   "allow-start",
+  "allow-restart-schedule",
   "allow-stop",
   "allow-status",
   "allow-config",

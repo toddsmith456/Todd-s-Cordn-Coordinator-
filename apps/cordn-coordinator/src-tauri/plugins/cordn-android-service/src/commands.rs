@@ -58,3 +58,11 @@ pub(crate) fn request_notification_permission<R: Runtime>(app: AppHandle<R>) -> 
     app.cordn_android_service()
         .request_notification_permission()
 }
+
+#[command]
+pub(crate) fn restart_schedule<R: Runtime>(
+    app: AppHandle<R>,
+    payload: serde_json::Value,
+) -> Result<serde_json::Value> {
+    app.cordn_android_service().restart_schedule(payload)
+}

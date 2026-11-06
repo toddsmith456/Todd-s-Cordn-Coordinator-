@@ -10,6 +10,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
+import android.os.PowerManager
 import android.os.Looper
 import android.util.AtomicFile
 import androidx.core.app.NotificationCompat
@@ -22,6 +23,9 @@ internal class CordnService : Service() {
     private val native = CordnNative()
     private val workerRunning = AtomicBoolean(false)
 
+    private var restartRequested = false
+    private var restartWakeLock: PowerManager.WakeLock? = null
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
@@ -30,7 +34,24 @@ internal class CordnService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         promoteToForeground()
 
+        if (intent?.action == ACTION_RESTART) {
+            runCatching { RestartSchedule.schedule(this) }
+            if (workerRunning.get() && !restartRequested && RestartSchedule.read(this).optBoolean("enabled") && RestartSchedule.allowed(this)) {
+                restartRequested = true
+                restartWakeLock = (getSystemService(POWER_SERVICE) as PowerManager)
+                    .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:scheduled-restart")
+                    .apply { acquire(120_000L) }
+                writeStatus("stopping")
+                native.stopCoordinator()
+            } else if (!workerRunning.get()) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
+            return if (workerRunning.get()) START_STICKY else START_NOT_STICKY
+        }
+
         if (intent?.action == ACTION_STOP) {
+            restartRequested = false
             if (workerRunning.get()) {
                 writeStatus("stopping")
                 native.stopCoordinator()
@@ -42,7 +63,12 @@ internal class CordnService : Service() {
             return START_NOT_STICKY
         }
 
-        if (!workerRunning.compareAndSet(false, true)) return START_STICKY
+        startWorker(intent)
+        return START_STICKY
+    }
+
+    private fun startWorker(intent: Intent?) {
+        if (!workerRunning.compareAndSet(false, true)) return
 
         try {
             val configJson = intent?.getStringExtra(EXTRA_CONFIG)?.also(::persistConfig)
@@ -56,26 +82,40 @@ internal class CordnService : Service() {
                         privateKey,
                         noBackupFilesDir.absolutePath,
                     )
-                    workerRunning.set(false)
-                    if (error != null) writeStatus("error", error) else writeStatus("stopped")
                     Handler(Looper.getMainLooper()).post {
-                        stopForeground(STOP_FOREGROUND_REMOVE)
-                        stopSelf()
+                        workerRunning.set(false)
+                        if (restartRequested) {
+                            restartRequested = false
+                            startWorker(null)
+                            Handler(Looper.getMainLooper()).postDelayed({ releaseRestartWakeLock() }, 30_000L)
+                        } else {
+                            if (error != null) writeStatus("error", error) else writeStatus("stopped")
+                            releaseRestartWakeLock()
+                            stopForeground(STOP_FOREGROUND_REMOVE)
+                            stopSelf()
+                        }
                     }
                 },
                 "cordn-coordinator",
             ).start()
         } catch (error: Exception) {
             workerRunning.set(false)
+            releaseRestartWakeLock()
             writeStatus("error", error.message ?: error.toString())
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
 
-        return START_STICKY
+    }
+
+    private fun releaseRestartWakeLock() {
+        restartWakeLock?.let { if (it.isHeld) it.release() }
+        restartWakeLock = null
     }
 
     override fun onDestroy() {
+        restartRequested = false
+        releaseRestartWakeLock()
         if (workerRunning.get()) native.stopCoordinator()
         super.onDestroy()
     }
@@ -170,6 +210,7 @@ internal class CordnService : Service() {
     }
 
     companion object {
+        const val ACTION_RESTART = "com.toddsmith456.cordn.coordinator.SCHEDULED_RESTART"
         const val ACTION_STOP = "org.cordn.coordinator.STOP"
         const val EXTRA_CONFIG = "config"
         const val EXTRA_PRIVATE_KEY = "privateKey"

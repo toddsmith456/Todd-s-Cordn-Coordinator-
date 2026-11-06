@@ -40,6 +40,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("cordn-android-service")
         .invoke_handler(tauri::generate_handler![
             commands::start,
+            commands::restart_schedule,
             commands::stop,
             commands::status,
             commands::config,

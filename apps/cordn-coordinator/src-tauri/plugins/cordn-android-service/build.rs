@@ -1,5 +1,6 @@
 const COMMANDS: &[&str] = &[
     "start",
+    "restart_schedule",
     "stop",
     "status",
     "config",

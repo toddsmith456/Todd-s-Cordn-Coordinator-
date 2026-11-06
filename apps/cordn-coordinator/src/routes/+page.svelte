@@ -9,6 +9,8 @@
 		getConfig,
 		getDiagnostics,
 		getStatus,
+		restartSchedule,
+		type RestartSchedule,
 		requestBatteryExemption,
 		requestNotificationPermission,
 		resetIdentity,
@@ -20,6 +22,38 @@
 	} from '$lib/coordinator';
 
 	let status = $state<ServiceStatus>({ state: 'stopped', batteryExempt: false });
+    let schedule = $state<RestartSchedule | null>(null);
+    let scheduleEnabled = $state(false);
+    let scheduleCount = $state('1');
+    let firstRestart = $state('03:00');
+    let secondRestart = $state('15:00');
+    let scheduleBusy = $state(false);
+    let scheduleError = $state('');
+    let scheduleSaved = $state(false);
+
+    async function refreshSchedule() {
+        try { schedule = await restartSchedule(); }
+        catch (cause) { scheduleError = message(cause); }
+    }
+
+    async function saveSchedule(event: SubmitEvent) {
+        event.preventDefault();
+        scheduleBusy = true;
+        scheduleError = '';
+        scheduleSaved = false;
+        try {
+            schedule = await restartSchedule('save', scheduleEnabled,
+                scheduleCount === '2' ? [firstRestart, secondRestart] : [firstRestart]);
+            scheduleSaved = true;
+        } catch (cause) { scheduleError = message(cause); }
+        finally { scheduleBusy = false; }
+    }
+
+    async function allowAlarms() {
+        try { await restartSchedule('permission'); }
+        catch (cause) { scheduleError = message(cause); }
+    }
+
 	let diagnostics = $state<ServiceDiagnostics | null>(null);
 	let diagnosticsOpen = $state(false);
 	let diagnosticsError = $state('');
@@ -60,7 +94,15 @@
 	onMount(() => {
 		void load();
 		const poll = window.setInterval(() => void refresh(), 2_000);
-		return () => window.clearInterval(poll);
+        const focus = () => { void refreshSchedule(); };
+        window.addEventListener('focus', focus);
+        const visibility = () => { if (!document.hidden) void refreshSchedule(); };
+        document.addEventListener('visibilitychange', visibility);
+        return () => {
+            window.clearInterval(poll);
+            window.removeEventListener('focus', focus);
+            document.removeEventListener('visibilitychange', visibility);
+        };
 	});
 
 	async function load() {
@@ -72,7 +114,12 @@
 			serverWebsite = saved.serverWebsite ?? '';
 			isAnnounced = saved.isAnnounced;
 			maxAgeDays = saved.maxAgeDays;
-			status = current;
+            status = current;
+            schedule = await restartSchedule();
+            scheduleEnabled = schedule.enabled;
+            scheduleCount = String(schedule.times.length);
+            firstRestart = schedule.times[0] ?? '03:00';
+            secondRestart = schedule.times[1] ?? '15:00';
 		} catch (cause) {
 			error = message(cause);
 		}
@@ -335,6 +382,40 @@
 		<p class="error" role="alert">{error || status.lastError}</p>
 	{/if}
 
+    <details class="panel schedule-panel">
+        <summary>
+            <span>
+                <strong>Scheduled restarts</strong>
+                <small>{schedule?.enabled ? `${schedule.times.join(' & ')} · daily` : 'Off · a fresh connection, on your schedule'}</small>
+            </span>
+        </summary>
+        <form class="panel-content schedule-content" onsubmit={saveSchedule} oninput={() => (scheduleSaved = false)}>
+            <label class="toggle"><input type="checkbox" bind:checked={scheduleEnabled} disabled={!schedule || scheduleBusy} />Enable daily restarts</label>
+            <p class="schedule-description">Wake the phone to safely restart a running coordinator. A manual Stop is always respected. Your identity and data stay unchanged.</p>
+            <fieldset class="schedule-fields" disabled={!scheduleEnabled || scheduleBusy || !schedule}>
+                <div class="frequency" role="group" aria-label="Restarts per day">
+                    <button type="button" class:selected={scheduleCount === '1'} aria-pressed={scheduleCount === '1'} onclick={() => { scheduleCount = '1'; scheduleSaved = false; }}>Once daily</button>
+                    <button type="button" class:selected={scheduleCount === '2'} aria-pressed={scheduleCount === '2'} onclick={() => { scheduleCount = '2'; scheduleSaved = false; }}>Twice daily</button>
+                </div>
+                <div class="row">
+                    <label>First restart<input type="time" bind:value={firstRestart} required /></label>
+                    {#if scheduleCount === '2'}<label>Second restart<input type="time" bind:value={secondRestart} required /></label>{/if}
+                </div>
+                <small>Phone’s local time · follows time-zone changes · keep times 15+ minutes apart</small>
+            </fieldset>
+            {#if schedule && !schedule.exactAlarmAllowed}
+                <div class="reliability alarm-permission">
+                    <div><strong>Allow precise wakeups</strong><p>Enable Alarms &amp; reminders in Android, return here, then save.</p></div>
+                    <button type="button" onclick={allowAlarms}>Allow</button>
+                </div>
+            {/if}
+            <button class="action start" type="submit" disabled={scheduleBusy || !schedule || (scheduleEnabled && !schedule.exactAlarmAllowed)}>{scheduleBusy ? 'Saving…' : 'Save schedule'}</button>
+            <p class="schedule-next" aria-live="polite">{scheduleSaved ? 'Saved. ' : ''}{schedule?.nextAlarm ? `Next wakeup: ${new Date(schedule.nextAlarm).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })} · only restarts if running` : 'No restart alarm scheduled.'}</p>
+            {#if scheduleError}<p class="inline-error" role="alert">{scheduleError}</p>{/if}
+            <small>Android force-stop disables alarms until you open the app again. Manufacturer battery restrictions can affect delivery.</small>
+        </form>
+    </details>
+
 	<details class="panel share">
 		<summary>
 			<span>
@@ -495,6 +576,16 @@
 </main>
 
 <style>
+    .schedule-content { display: grid; gap: 12px; }
+    .schedule-description, .schedule-next { color: #83a690; font-size: .75rem; line-height: 1.5; }
+    .schedule-fields { padding: 0; gap: 12px; }
+    .schedule-fields:disabled { opacity: .45; }
+    .frequency { display: flex; gap: 6px; padding: 4px; border: 1px solid #2a3930; border-radius: 11px; background: #0a0e0c; }
+    .frequency button { flex: 1; padding: 9px; background: transparent; color: #83a690; font-size: .78rem; font-weight: 700; }
+    .frequency button.selected { background: #203e2c; color: #a3f0bd; }
+    .schedule-content .action, .alarm-permission { margin-top: 0; }
+    .schedule-content > small { font-size: .68rem; line-height: 1.5; }
+
 	:global(*) { box-sizing: border-box; }
 	:global(html) { color-scheme: dark; background: #090b0a; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
 	:global(body) { margin: 0; min-width: 320px; background: radial-gradient(circle at 50% -20%, #193127 0, #090b0a 42%); color: #edf6f0; }
