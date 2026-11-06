@@ -604,8 +604,12 @@ impl NostrServerTransport {
         self.health.clone()
     }
     pub(crate) fn critical_task_failed(&self) -> bool {
+        // Only the first three handles are permanent loops. Later handles include
+        // finite announcement tasks whose completion is normal.
+        if self.task_handles.iter().take(3).any(|h| h.is_finished()) {
+            self.health.failed();
+        }
         self.health.snapshot().critical_task_failed
-            || self.task_handles.iter().take(3).any(|h| h.is_finished())
     }
     /// Create a new server transport.
     pub async fn new<T>(signer: T, config: NostrServerTransportConfig) -> Result<Self>
