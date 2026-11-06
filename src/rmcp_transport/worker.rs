@@ -154,8 +154,15 @@ impl Worker for NostrServerWorker {
 
         let cancellation_token = context.cancellation_token.clone();
 
+        let mut health_tick = tokio::time::interval(std::time::Duration::from_secs(5));
+        health_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let quit_reason = loop {
             tokio::select! {
+                _ = health_tick.tick() => {
+                    if self.transport.critical_task_failed() {
+                        break WorkerQuitReason::fatal(Self::Error::Transport("critical transport task unhealthy".into()), "transport supervision");
+                    }
+                }
                 _ = cancellation_token.cancelled() => {
                     break WorkerQuitReason::Cancelled;
                 }
@@ -235,7 +242,15 @@ impl Worker for NostrServerWorker {
                     };
 
                     let result = if let Some(internal_msg) = rmcp_server_tx_to_internal(outbound.message) {
-                        self.forward_server_internal(internal_msg).await
+                        tokio::select! {
+                            _ = cancellation_token.cancelled() => break WorkerQuitReason::Cancelled,
+                            result = tokio::time::timeout(std::time::Duration::from_secs(30), self.forward_server_internal(internal_msg)) => {
+                                match result {
+                                    Ok(result) => result,
+                                    Err(_) => Err(Self::Error::Transport("response forwarding exceeded deadline".into())),
+                                }
+                            }
+                        }
                     } else {
                         Err(Self::Error::Validation(
                             "failed converting rmcp server message to internal JSON-RPC".to_string(),

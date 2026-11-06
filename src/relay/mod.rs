@@ -17,6 +17,17 @@ use std::time::Duration;
 /// Trait abstracting relay pool operations, enabling dependency injection and testing.
 #[async_trait]
 pub trait RelayPoolTrait: Send + Sync {
+    /// Local connection counts; mock pools may leave this unimplemented.
+    async fn connection_counts(&self, _urls: &[String]) -> Option<(usize, usize)> {
+        None
+    }
+    /// Retry only a known, explicitly rejected subscription on an existing relay.
+    async fn repair_subscription(&self, _url: &str, _id: &str) -> Result<bool> {
+        Ok(false)
+    }
+    async fn refresh_connections(&self) -> Result<()> {
+        Ok(())
+    }
     /// Connect to the given relay URLs.
     async fn connect(&self, relay_urls: &[String]) -> Result<()>;
     /// Disconnect from all relays.
@@ -44,6 +55,7 @@ pub trait RelayPoolTrait: Send + Sync {
 /// Relay pool wrapper for managing Nostr relay connections.
 pub struct RelayPool {
     client: Arc<Client>,
+    subscriptions: tokio::sync::RwLock<std::collections::HashMap<SubscriptionId, Filter>>,
 }
 
 impl RelayPool {
@@ -56,6 +68,7 @@ impl RelayPool {
 
         Ok(Self {
             client: Arc::new(client),
+            subscriptions: tokio::sync::RwLock::new(std::collections::HashMap::new()),
         })
     }
 
@@ -133,10 +146,12 @@ impl RelayPool {
     /// Subscribe to events matching filters.
     pub async fn subscribe(&self, filters: Vec<Filter>) -> Result<()> {
         for filter in filters {
-            self.client
-                .subscribe(filter, None)
+            let output = self
+                .client
+                .subscribe(filter.clone(), None)
                 .await
                 .map_err(|e| Error::Transport(e.to_string()))?;
+            self.subscriptions.write().await.insert(output.val, filter);
         }
         Ok(())
     }
@@ -172,6 +187,43 @@ impl RelayPool {
 
 #[async_trait]
 impl RelayPoolTrait for RelayPool {
+    async fn connection_counts(&self, urls: &[String]) -> Option<(usize, usize)> {
+        let mut connected = 0;
+        for url in urls {
+            if let Ok(relay) = self.client.relay(url).await {
+                if relay.is_connected() {
+                    connected += 1;
+                }
+            }
+        }
+        Some((connected, urls.len()))
+    }
+    async fn repair_subscription(&self, url: &str, id: &str) -> Result<bool> {
+        let id = SubscriptionId::new(id);
+        let filter = self.subscriptions.read().await.get(&id).cloned();
+        let Some(filter) = filter else {
+            return Ok(false);
+        };
+        // relay() never adds a new destination. Unknown URLs/IDs are not repaired.
+        let relay = self
+            .client
+            .relay(url)
+            .await
+            .map_err(|e| Error::Transport(e.to_string()))?;
+        if !relay.is_connected() {
+            return Ok(false);
+        }
+        relay
+            .subscribe_with_id(id, filter, SubscribeOptions::default())
+            .await
+            .map_err(|e| Error::Transport(e.to_string()))?;
+        Ok(true)
+    }
+    async fn refresh_connections(&self) -> Result<()> {
+        self.client.connect().await;
+        Ok(())
+    }
+
     async fn connect(&self, relay_urls: &[String]) -> Result<()> {
         RelayPool::connect(self, relay_urls).await
     }

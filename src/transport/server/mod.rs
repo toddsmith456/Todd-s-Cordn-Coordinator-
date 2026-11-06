@@ -6,8 +6,10 @@
 
 pub(crate) mod announcement_manager;
 pub mod correlation_store;
+pub mod health;
 pub mod middleware;
 pub mod session_store;
+pub use health::{HealthSnapshot, ServerHealth};
 
 pub use correlation_store::{RouteEntry, ServerEventRouteStore};
 pub use middleware::{InboundContext, InboundMiddleware, Next};
@@ -378,6 +380,7 @@ impl Default for NostrServerTransportConfig {
 
 /// Server-side Nostr transport — receives MCP requests and sends responses.
 pub struct NostrServerTransport {
+    health: ServerHealth,
     /// Relay pool for publishing and subscribing.
     base: BaseTransport,
     /// Configuration for this server transport.
@@ -596,6 +599,14 @@ pub struct ClientPubkey(pub String);
 pub struct InboundEvent(pub Event);
 
 impl NostrServerTransport {
+    /// Local health handle; passive evidence only.
+    pub fn health(&self) -> ServerHealth {
+        self.health.clone()
+    }
+    pub(crate) fn critical_task_failed(&self) -> bool {
+        self.health.snapshot().critical_task_failed
+            || self.task_handles.iter().take(3).any(|h| h.is_finished())
+    }
     /// Create a new server transport.
     pub async fn new<T>(signer: T, config: NostrServerTransportConfig) -> Result<Self>
     where
@@ -639,6 +650,7 @@ impl NostrServerTransport {
         // announcements + first responses (each gated by its own config flag).
         announcement_manager.set_internal_common_tags(internal_common_capability_tags(&config));
         Ok(Self {
+            health: ServerHealth::default(),
             announcement_manager,
             base: BaseTransport {
                 relay_pool,
@@ -694,6 +706,7 @@ impl NostrServerTransport {
         // announcements + first responses (each gated by its own config flag).
         announcement_manager.set_internal_common_tags(internal_common_capability_tags(&config));
         Ok(Self {
+            health: ServerHealth::default(),
             announcement_manager,
             base: BaseTransport {
                 relay_pool,
@@ -839,6 +852,7 @@ impl NostrServerTransport {
         );
         let event_loop_token = self.cancellation_token.child_token();
 
+        let loop_health = self.health.clone();
         let event_loop_handle = tokio::spawn(async move {
             Self::event_loop(
                 relay_pool,
@@ -861,8 +875,12 @@ impl NostrServerTransport {
                 inbound_middlewares,
                 supports_explicit_gating,
                 tag_sources,
+                loop_health.clone(),
             )
             .await;
+            if !loop_health.snapshot().critical_task_failed {
+                loop_health.failed();
+            }
         });
 
         // Spawn session cleanup with cancellation support
@@ -926,6 +944,59 @@ impl NostrServerTransport {
         self.task_handles.push(event_loop_handle);
         self.task_handles.push(cleanup_handle);
 
+        // Independent maintenance, so slow publishing never blocks relay ingestion.
+        let health = self.health.clone();
+        let pool = self.base.relay_pool.clone();
+        let urls = self.config.relay_urls.clone();
+        let token = self.cancellation_token.child_token();
+        let open_stream = self.open_stream.clone();
+        let sessions = self.sessions.clone();
+        self.task_handles.push(tokio::spawn(async move {
+            let cadence = if open_stream.enabled && open_stream.policy.idle_timeout_ms != 0 {
+                (Duration::from_millis(open_stream.policy.idle_timeout_ms) / 2)
+                    .clamp(Duration::from_secs(1), Duration::from_secs(15))
+            } else {
+                Duration::from_secs(15)
+            };
+            let mut timer = tokio::time::interval(cadence);
+            timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tokio::select! {
+                    _ = token.cancelled() => break,
+                    _ = timer.tick() => {}
+                }
+                let maintenance = async {
+                    if let Some((connected, total)) = pool.connection_counts(&urls).await {
+                        health.relays(connected, total);
+                    }
+                    if health.take_network_changed() {
+                        let _ = pool.refresh_connections().await;
+                    }
+                    for (url, id) in health.due_repairs() {
+                        if pool.repair_subscription(&url, &id).await.unwrap_or(false) {
+                            health.repaired();
+                        }
+                    }
+                    if open_stream.enabled && open_stream.policy.idle_timeout_ms != 0 {
+                        Self::sweep_open_stream_sessions(
+                            &open_stream,
+                            &pool,
+                            encryption_mode,
+                            gift_wrap_mode,
+                            &sessions,
+                        )
+                        .await;
+                    }
+                };
+                tokio::select! {
+                    _ = token.cancelled() => break,
+                    result = tokio::time::timeout(Duration::from_secs(45), maintenance) => {
+                        if result.is_err() { continue; }
+                    }
+                }
+            }
+        }));
+
         tracing::info!(
             target: LOG_TARGET,
             relay_count = self.config.relay_urls.len(),
@@ -939,8 +1010,14 @@ impl NostrServerTransport {
     /// Close the transport — cancels event loop and cleanup tasks, then disconnects.
     pub async fn close(&mut self) -> Result<()> {
         self.cancellation_token.cancel();
-        for handle in self.task_handles.drain(..) {
-            let _ = handle.await;
+        for mut handle in self.task_handles.drain(..) {
+            if tokio::time::timeout(Duration::from_secs(5), &mut handle)
+                .await
+                .is_err()
+            {
+                handle.abort();
+                let _ = handle.await;
+            }
         }
         self.announcement_manager.shutdown();
         self.message_tx.take();
@@ -1197,6 +1274,7 @@ impl NostrServerTransport {
             return Err(error);
         }
 
+        self.health.acknowledged();
         // Clean up wrap-kind tracking
         self.request_wrap_kinds.write().await.remove(event_id);
 
@@ -2255,6 +2333,7 @@ impl NostrServerTransport {
         middlewares: Arc<[Arc<dyn InboundMiddleware>]>,
         supports_explicit_gating: bool,
         tag_sources: ResponseTagSources,
+        health: ServerHealth,
     ) {
         let mut notifications = relay_pool.notifications();
 
@@ -2267,18 +2346,8 @@ impl NostrServerTransport {
         let mut sweep_timer =
             tokio::time::interval_at(tokio::time::Instant::now() + sweep_interval, sweep_interval);
 
-        // CEP-41: keepalive sweep for server-as-reader sessions. Cadence = half the
-        // idle timeout, clamped to [1s, 30s] (the idle→probe→abort machine only
-        // needs sub-idle granularity). Armed only when open-stream is enabled.
-        let open_stream_sweep_enabled =
-            open_stream.enabled && open_stream.policy.idle_timeout_ms != 0;
-        let open_stream_sweep_interval =
-            (Duration::from_millis(open_stream.policy.idle_timeout_ms) / 2)
-                .clamp(Duration::from_secs(1), Duration::from_secs(30));
-        let mut open_stream_sweep_timer = tokio::time::interval_at(
-            tokio::time::Instant::now() + open_stream_sweep_interval,
-            open_stream_sweep_interval,
-        );
+        let mut progress_timer = tokio::time::interval(Duration::from_secs(5));
+        progress_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {
             let notification = tokio::select! {
@@ -2293,17 +2362,7 @@ impl NostrServerTransport {
                     Self::sweep_oversized_receivers(&oversized_receiver).await;
                     continue;
                 }
-                _ = open_stream_sweep_timer.tick(), if open_stream_sweep_enabled => {
-                    Self::sweep_open_stream_sessions(
-                        &open_stream,
-                        &relay_pool,
-                        encryption_mode,
-                        gift_wrap_mode,
-                        &sessions,
-                    )
-                    .await;
-                    continue;
-                }
+                _ = progress_timer.tick() => { health.progress(); continue; }
                 result = notifications.recv() => {
                     match result {
                         Ok(n) => n,
@@ -2319,6 +2378,29 @@ impl NostrServerTransport {
                     }
                 }
             };
+            health.progress();
+            match &notification {
+                RelayPoolNotification::Message { relay_url, message } => match message {
+                    RelayMessage::Closed {
+                        subscription_id,
+                        message,
+                    } => health.closed(
+                        relay_url.to_string(),
+                        subscription_id.to_string(),
+                        message.as_ref(),
+                    ),
+                    RelayMessage::EndOfStoredEvents(id) => {
+                        health.accepted(relay_url.as_str(), id.as_str())
+                    }
+                    _ => {}
+                },
+                RelayPoolNotification::Event {
+                    relay_url,
+                    subscription_id,
+                    ..
+                } => health.accepted(relay_url.as_str(), subscription_id.as_str()),
+                _ => {}
+            }
             if let RelayPoolNotification::Event { event, .. } = notification {
                 let is_gift_wrap = event.kind == Kind::Custom(GIFT_WRAP_KIND)
                     || event.kind == Kind::Custom(EPHEMERAL_GIFT_WRAP_KIND);
@@ -2559,6 +2641,7 @@ impl NostrServerTransport {
                     }
                 }
 
+                health.request();
                 // Session management
                 let on_evicted_cb = sessions.eviction_callback();
                 let mut sessions_w = sessions.write().await;
@@ -6723,5 +6806,140 @@ mod tests {
                 "{key} elements are not validated"
             );
         }
+    }
+}
+
+// Audit-only test appended to the pinned SDK's src/transport/server/mod.rs.
+// It confirms failure propagation behavior; it does NOT reproduce phone idle.
+#[cfg(test)]
+mod reliability_audit_repros {
+    use super::*;
+    use crate::relay::mock::MockRelayPool;
+
+    #[tokio::test]
+    async fn reliability_aborted_ingestion_is_detected_even_with_open_receiver() {
+        let (server_pool, client_pool) = MockRelayPool::create_pair();
+        let server_pool = Arc::new(server_pool);
+        let client_pool = Arc::new(client_pool);
+        let pubkey = server_pool.mock_public_key();
+        let mut transport = NostrServerTransport::with_relay_pool(
+            NostrServerTransportConfig::default(),
+            server_pool.clone(),
+        )
+        .await
+        .unwrap();
+        transport.start().await.unwrap();
+        let mut receiver = transport.take_message_receiver().unwrap();
+        tokio::task::yield_now().await;
+
+        async fn publish(pool: &MockRelayPool, pubkey: PublicKey, id: u32) {
+            let body =
+                serde_json::json!({"jsonrpc":"2.0", "id": id, "method":"tools/list", "params":{}})
+                    .to_string();
+            let event = EventBuilder::new(Kind::Custom(25910), body)
+                .tags([Tag::public_key(pubkey)])
+                .sign_with_keys(&pool.mock_keys())
+                .unwrap();
+            pool.publish_event(&event).await.unwrap();
+        }
+        publish(&client_pool, pubkey, 1).await;
+        let before = tokio::time::timeout(Duration::from_secs(1), receiver.recv())
+            .await
+            .unwrap();
+        assert!(
+            before.is_some(),
+            "baseline delivery must work before injecting failure"
+        );
+
+        transport.task_handles[0].abort();
+        tokio::task::yield_now().await;
+        assert!(
+            transport.critical_task_failed(),
+            "supervisor must detect aborted ingestion even though connected flag remains set"
+        );
+        transport.close().await.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod reliability_closed_repair {
+    use super::*;
+    use futures::{SinkExt, StreamExt};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::{
+        net::TcpListener,
+        time::{sleep, timeout},
+    };
+    use tokio_tungstenite::{accept_async, tungstenite::Message};
+
+    #[tokio::test]
+    async fn reliability_transient_closed_retries_existing_subscription_and_clears_degradation() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}", listener.local_addr().unwrap());
+        let requests = Arc::new(AtomicUsize::new(0));
+        let observed = requests.clone();
+        let relay = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut socket = accept_async(socket).await.unwrap();
+            let mut target = None;
+            while let Some(Ok(message)) = socket.next().await {
+                match message {
+                    Message::Ping(bytes) => {
+                        let _ = socket.send(Message::Pong(bytes)).await;
+                    }
+                    Message::Text(text) => {
+                        let value: serde_json::Value = serde_json::from_str(text.as_str()).unwrap();
+                        if value[0] == "REQ" {
+                            let id = value[1].as_str().unwrap().to_owned();
+                            let first = target.is_none();
+                            if first {
+                                target = Some(id.clone());
+                            }
+                            if target.as_ref() == Some(&id) {
+                                observed.fetch_add(1, Ordering::SeqCst);
+                            }
+                            let response = if first {
+                                serde_json::json!(["CLOSED", value[1], "rate-limited: temporary"])
+                            } else {
+                                serde_json::json!(["EOSE", value[1]])
+                            };
+                            socket
+                                .send(Message::Text(response.to_string().into()))
+                                .await
+                                .unwrap();
+                        }
+                    }
+                    Message::Close(_) => break,
+                    _ => {}
+                }
+            }
+        });
+        let config = NostrServerTransportConfig::default().with_relay_urls(vec![url]);
+        let mut transport = NostrServerTransport::new(crate::signer::generate(), config)
+            .await
+            .unwrap();
+        transport.start().await.unwrap();
+        timeout(Duration::from_secs(5), async {
+            while transport.health().snapshot().rejected_subscriptions == 0 {
+                sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("CLOSED must be diagnosed");
+        assert_eq!(requests.load(Ordering::SeqCst), 1, "no immediate retry");
+        timeout(Duration::from_secs(90), async {
+            loop {
+                let h = transport.health().snapshot();
+                if h.subscription_repairs > 0 && h.rejected_subscriptions == 0 {
+                    break;
+                }
+                sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await
+        .expect("transient subscription should recover with bounded backoff");
+        assert_eq!(requests.load(Ordering::SeqCst), 2);
+        transport.close().await.unwrap();
+        relay.abort();
     }
 }
