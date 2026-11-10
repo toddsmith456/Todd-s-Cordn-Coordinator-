@@ -58,7 +58,7 @@ jobs:
       - name: tags
         id: t
         run: |
-          repo="$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          repo="$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]' | sed 's/-*$//')"
           v="${GITHUB_REF_NAME#v}"
           echo "tags=ghcr.io/${repo}/cordn-server:${v},ghcr.io/${repo}/cordn-server:latest" >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v6
