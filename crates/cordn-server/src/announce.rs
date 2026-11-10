@@ -51,6 +51,7 @@ pub struct SelfEvent {
 /// take it (refused, errored, or never answered), so the caller can retry just
 /// those. An implementation must not fail the whole round because one relay is
 /// down.
+#[allow(clippy::double_must_use)]
 #[async_trait::async_trait]
 pub trait SelfPublisher: Send + Sync {
     async fn publish(&self, targets: &[String], event: &SelfEvent) -> Vec<String>;

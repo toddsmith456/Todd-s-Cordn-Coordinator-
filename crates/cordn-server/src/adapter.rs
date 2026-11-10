@@ -53,6 +53,7 @@ pub use cordn_core::Now;
 
 /// Sink for streaming subscription tools. `methods.rs` adapts the rmcp
 /// `OpenStreamWriter` to this; tests use a collecting sink.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait MessageSink: Send + Sync {
     /// Publish the lazy stream `start` frame (idempotent).
