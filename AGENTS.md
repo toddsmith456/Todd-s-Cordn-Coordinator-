@@ -206,8 +206,21 @@ the server loads `.env` then `.env.local` (first-write-wins per key). Relevant
 variables include `CORDN_SERVER_PRIVATE_KEY`, `CORDN_RELAY_URLS`,
 `CORDN_SERVER_NAME`, `CORDN_SERVER_ABOUT`, `CORDN_SERVER_WEBSITE`,
 `CORDN_ANNOUNCED`, `CORDN_STORAGE_BACKEND` (`memory` | `sqlite`),
-`CORDN_SQLITE_PATH`, `CORDN_MAX_AGE_DAYS`, and the `CORDN_RATE_LIMIT_*` and
-`CORDN_MAX_*_KEY_PACKAGES_*` abuse-protection knobs.
+`CORDN_SQLITE_PATH`, `CORDN_MAX_AGE_DAYS`, the `CORDN_RATE_LIMIT_*` and
+`CORDN_MAX_*_KEY_PACKAGES_*` abuse-protection knobs, and the self-description
+knobs (`CORDN_PUBLISH_RELAY_LIST`, `CORDN_PUBLISH_PROFILE`,
+`CORDN_RELAY_LIST_URLS`, `CORDN_DISCOVERY_FALLBACK_RELAYS`,
+`CORDN_DISCOVERY_REFRESH_HOURS`, `CORDN_SERVER_PICTURE|NIP05|LUD16`).
+
+`announce.rs` owns what the coordinator publishes about itself — the kind-10002
+relay list (how a client that holds only the pubkey finds it) and the kind-0
+profile. The ContextVM transport can publish both once at startup; it is
+switched off (`with_publish_relay_list(false)`) because it cannot retry a relay
+that was down or refresh a list a relay has dropped, and because a one-shot
+publish at transport start races the relay connection ("relay not found").
+Event building and the retry schedule are plain functions plus a `SelfPublisher`
+trait, tested without a relay; `runtime.rs` holds the one production
+implementation over `nostr-sdk`.
 
 ## Testing instructions
 
