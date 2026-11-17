@@ -1,0 +1,5 @@
+# /etc/conf.d/cordn — OpenRC service wrapper overrides for cordn-server.
+# Application settings live in /etc/cordn/cordn.env.
+
+CORDN_USER="cordn"
+CORDN_GROUP="cordn"

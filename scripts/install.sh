@@ -19,7 +19,7 @@
 # defined before first call, unlike bash.
 set -eu
 
-REPO="Cordn-msg/cordn-rs"
+REPO="toddsmith456/Todd-s-Cordn-Coordinator-"
 PREFIX="${PREFIX:-/usr/local/bin}"
 SERVICE=0
 
@@ -88,7 +88,7 @@ EOF
   cat > "$UNIT" <<EOF
 [Unit]
 Description=cordn-server - MLS delivery coordinator
-Documentation=https://github.com/Cordn-msg/cordn-rs
+Documentation=https://github.com/toddsmith456/Todd-s-Cordn-Coordinator-
 After=network-online.target
 Wants=network-online.target
 
@@ -163,13 +163,16 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 case "$(uname -sm)" in
-  Linux\ x86_64)  TARGET=x86_64-unknown-linux-gnu ;;
-  Linux\ aarch64) TARGET=aarch64-unknown-linux-gnu ;;
-  *) echo "unsupported platform: $(uname -sm) — prebuilt binaries are linux/amd64 + linux/arm64" >&2; exit 1 ;;
+  Linux\ x86_64)  TARGET=x86_64-unknown-linux-musl ;;
+  Linux\ aarch64) TARGET=aarch64-unknown-linux-musl ;;
+  Linux\ armv7*)  TARGET=armv7-unknown-linux-musleabihf ;;
+  Darwin\ arm64)  TARGET=aarch64-apple-darwin ;;
+  Darwin\ x86_64) TARGET=x86_64-apple-darwin ;;
+  *) echo "unsupported platform: $(uname -sm)" >&2; exit 1 ;;
 esac
 
-TAG="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-        | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)"
+TAG="$(curl -fsSL "https://api.github.com/repos/$REPO/releases" \
+        | sed -n 's/.*"tag_name": *"\(v[^"]*\)".*/\1/p' | head -1)"
 [ -n "$TAG" ] || { echo "could not resolve latest release for $REPO" >&2; exit 1; }
 BASE="https://github.com/$REPO/releases/download/$TAG"
 

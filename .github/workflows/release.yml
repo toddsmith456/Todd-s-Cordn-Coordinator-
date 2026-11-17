@@ -1,9 +1,11 @@
 name: Release
 
 # Server lane: triggered by `v*` tags (parity `vX.Y.Z` or packaging-only
-# `vX.Y.Z-<label>.N`, pushed by `make patch|minor|major`). Builds the server
-# archives, checksums, and the multi-arch container. The Android app has its
-# own lane: `android-v*` tags → release-android.yml.
+# `vX.Y.Z-<label>.N`, pushed by `make patch|minor|major`). Builds 22 server
+# release artifacts across Linux (gnu + musl tarballs, deb, rpm, Alpine apk,
+# Arch pkg.tar.zst), macOS (arm64 + x86_64), Windows (x86_64 + arm64), and
+# multi-arch GHCR OCI containers (Debian + ultra-small Alpine/musl).
+# The Android app has its own lane: `android-v*` tags → release-android.yml.
 
 on:
   push:
@@ -20,29 +22,153 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
-          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
+          - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu, archive: tar.gz }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, archive: tar.gz }
+          - { os: ubuntu-24.04, target: x86_64-unknown-linux-musl, archive: tar.gz, musl_native: true }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl, archive: tar.gz, musl_native: true }
+          - { os: ubuntu-24.04, target: armv7-unknown-linux-musleabihf, archive: tar.gz, musl_armv7: true }
+          - { os: macos-15, target: aarch64-apple-darwin, archive: tar.gz }
+          - { os: macos-15-intel, target: x86_64-apple-darwin, archive: tar.gz }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, archive: zip }
+          - { os: windows-11-arm, target: aarch64-pc-windows-msvc, archive: zip, win_arm64: true }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install musl-tools
+        if: matrix.musl_native == true
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools
+
+      - name: Install armv7 musl cross-toolchain
+        if: matrix.musl_armv7 == true
+        run: |
+          curl -fsSL https://musl.cc/armv7l-linux-musleabihf-cross.tgz -o /tmp/armv7-musl.tgz
+          tar -xzf /tmp/armv7-musl.tgz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/armv7l-linux-musleabihf-cross/bin" >> "$GITHUB_PATH"
+          echo "CC_armv7_unknown_linux_musleabihf=armv7l-linux-musleabihf-gcc" >> "$GITHUB_ENV"
+          echo "AR_armv7_unknown_linux_musleabihf=armv7l-linux-musleabihf-ar" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER=armv7l-linux-musleabihf-gcc" >> "$GITHUB_ENV"
+
+      - name: Ensure clang-cl for ring on Windows ARM64
+        if: matrix.win_arm64 == true
+        shell: pwsh
+        run: |
+          $clangCl = Get-Command clang-cl.exe -ErrorAction SilentlyContinue
+          if (-not $clangCl) {
+            $candidates = @(
+              "C:\Program Files\LLVM\bin\clang-cl.exe",
+              "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\Llvm\ARM64\bin\clang-cl.exe",
+              "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\Llvm\x64\bin\clang-cl.exe",
+              "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\Llvm\ARM64\bin\clang-cl.exe",
+              "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\Llvm\x64\bin\clang-cl.exe"
+            )
+            foreach ($p in $candidates) {
+              if (Test-Path $p) {
+                $dir = Split-Path -Parent $p
+                Add-Content -Path $env:GITHUB_PATH -Value $dir
+                $clangCl = $p
+                break
+              }
+            }
+          }
+          if (-not $clangCl) {
+            choco install llvm -y --no-progress
+            Add-Content -Path $env:GITHUB_PATH -Value "C:\Program Files\LLVM\bin"
+          }
+          Add-Content -Path $env:GITHUB_ENV -Value "CC_aarch64_pc_windows_msvc=clang-cl.exe"
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
       - name: Build
         run: cargo build --release --locked --features server --target ${{ matrix.target }} -p cordn-server
-      - name: Package
+
+      - name: Package (Unix tar.gz)
+        if: matrix.archive == 'tar.gz'
         run: |
-          cd target/${{ matrix.target }}/release
-          tar czf ../../../cordn-server-${{ matrix.target }}.tar.gz cordn-server
+          mkdir -p out-release out-raw
+          cp "target/${{ matrix.target }}/release/cordn-server" out-raw/cordn-server
+          tar -czf "out-release/cordn-server-${{ matrix.target }}.tar.gz" -C "target/${{ matrix.target }}/release" cordn-server
+
+      - name: Package (Windows zip)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out-release | Out-Null
+          Compress-Archive -Path "target/${{ matrix.target }}/release/cordn-server.exe" -DestinationPath "out-release/cordn-server-${{ matrix.target }}.zip" -Force
+
       - uses: actions/upload-artifact@v4
         with:
-          name: cordn-server-${{ matrix.target }}
-          path: cordn-server-${{ matrix.target }}.tar.gz
+          name: release-${{ matrix.target }}
+          path: out-release/*
+          if-no-files-found: error
 
-  # Multi-arch Docker image → GHCR. Independent Rust build (no dependency on
-  # the `build` job's release artifacts), so it runs in parallel.
+      - uses: actions/upload-artifact@v4
+        if: matrix.archive == 'tar.gz' && contains(matrix.target, 'linux')
+        with:
+          name: raw-bin-${{ matrix.target }}
+          path: out-raw/cordn-server
+          if-no-files-found: error
+
+  # Native Linux distro packages (.deb, .rpm, Alpine .apk, Arch .pkg.tar.zst)
+  packages:
+    name: linux packages (deb, rpm, apk, arch)
+    needs: [build]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Linux binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: raw-bin-*
+          path: linux-bins
+
+      - name: Install nFPM
+        run: |
+          curl -fsSL https://github.com/goreleaser/nfpm/releases/download/v2.47.0/nfpm_2.47.0_Linux_x86_64.tar.gz -o /tmp/nfpm.tar.gz
+          tar -xzf /tmp/nfpm.tar.gz -C /usr/local/bin nfpm
+
+      - name: Build deb, rpm, Arch pkg.tar.zst, and Alpine apk packages
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist-bin out-pkgs
+
+          # Systemd-based distro packages (.deb, .rpm, .pkg.tar.zst) from glibc builds
+          for pair in "amd64:x86_64-unknown-linux-gnu" "arm64:aarch64-unknown-linux-gnu"; do
+            arch="${pair%%:*}"
+            triple="${pair#*:}"
+            install -m 0755 "linux-bins/raw-bin-${triple}/cordn-server" dist-bin/cordn-server
+            for fmt in deb rpm archlinux; do
+              NFPM_ARCH="$arch" NFPM_VERSION="$VERSION" \
+                nfpm pkg --config packaging/nfpm-systemd.yaml --packager "$fmt" --target out-pkgs/
+            done
+          done
+
+          # OpenRC + static musl Alpine Linux / postmarketOS .apk packages
+          for pair in "amd64:x86_64-unknown-linux-musl" "arm64:aarch64-unknown-linux-musl" "arm7:armv7-unknown-linux-musleabihf"; do
+            arch="${pair%%:*}"
+            triple="${pair#*:}"
+            install -m 0755 "linux-bins/raw-bin-${triple}/cordn-server" dist-bin/cordn-server
+            NFPM_ARCH="$arch" NFPM_VERSION="$VERSION" \
+              nfpm pkg --config packaging/nfpm-alpine.yaml --packager apk --target out-pkgs/
+          done
+
+          ls -lh out-pkgs/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux-packages
+          path: out-pkgs/*
+          if-no-files-found: error
+
+  # Multi-arch Debian Docker image → GHCR (linux/amd64, linux/arm64).
   docker:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
@@ -70,23 +196,70 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  release:
+  # Multi-arch ultra-small Alpine/musl Docker image → GHCR (linux/amd64, linux/arm64, linux/arm/v7).
+  docker-alpine:
     needs: [build]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: raw-bin-*musl*
+          path: musl-bins
+      - name: Stage static musl binaries
+        run: |
+          mkdir -p docker-bins/amd64 docker-bins/arm64 docker-bins/armv7
+          install -m 0755 musl-bins/raw-bin-x86_64-unknown-linux-musl/cordn-server docker-bins/amd64/cordn-server
+          install -m 0755 musl-bins/raw-bin-aarch64-unknown-linux-musl/cordn-server docker-bins/arm64/cordn-server
+          install -m 0755 musl-bins/raw-bin-armv7-unknown-linux-musleabihf/cordn-server docker-bins/armv7/cordn-server
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: tags
+        id: t
+        run: |
+          repo="$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]' | sed 's/-*$//')"
+          v="${GITHUB_REF_NAME#v}"
+          echo "tags=ghcr.io/${repo}/cordn-server:${v}-alpine,ghcr.io/${repo}/cordn-server:alpine" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packaging/Dockerfile.alpine
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          push: true
+          tags: ${{ steps.t.outputs.tags }}
+
+  release:
+    needs: [build, packages]
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
+          pattern: release-*
           path: artifacts
           merge-multiple: true
-      - name: Checksums
-        run: cd artifacts && sha256sum *.tar.gz > SHA256SUMS
+      - name: Verify artifact count and generate SHA256SUMS
+        run: |
+          cd artifacts
+          ls -lh
+          count="$(ls -1 | wc -l)"
+          echo "Total release files before SHA256SUMS: $count"
+          test "$count" -eq 18 || { echo "Expected 18 package/archive artifacts, got $count" >&2; exit 1; }
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
-            artifacts/*.tar.gz
-            artifacts/SHA256SUMS
+            artifacts/*

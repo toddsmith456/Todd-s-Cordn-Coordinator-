@@ -1,0 +1,45 @@
+name: "cordn-server"
+arch: "${NFPM_ARCH}"
+platform: "linux"
+version: "${NFPM_VERSION}"
+section: "net"
+priority: "optional"
+maintainer: "Todd Smith <toddsmith456@users.noreply.github.com>"
+description: |
+  Native Rust MLS delivery coordinator (ContextVM/MCP server over Nostr).
+  Static musl build with OpenRC service scripts for Alpine Linux and postmarketOS.
+vendor: "Todd's Cordn Coordinator"
+homepage: "https://github.com/toddsmith456/Todd-s-Cordn-Coordinator-"
+license: "MIT"
+
+contents:
+  - src: "./dist-bin/cordn-server"
+    dst: "/usr/bin/cordn-server"
+    file_info:
+      mode: 0755
+  - src: "./packaging/openrc/cordn.initd"
+    dst: "/etc/init.d/cordn"
+    file_info:
+      mode: 0755
+  - src: "./packaging/openrc/cordn.confd"
+    dst: "/etc/conf.d/cordn"
+    type: "config|noreplace"
+    file_info:
+      mode: 0644
+  - src: "./packaging/systemd/cordn.env"
+    dst: "/etc/cordn/cordn.env"
+    type: "config|noreplace"
+    file_info:
+      mode: 0640
+  - src: "./LICENSE"
+    dst: "/usr/share/licenses/cordn-server/LICENSE"
+    file_info:
+      mode: 0644
+  - dst: "/var/lib/cordn"
+    type: "dir"
+    file_info:
+      mode: 0750
+
+scripts:
+  postinstall: "./packaging/scripts/postinstall.sh"
+  preremove: "./packaging/scripts/preremove.sh"

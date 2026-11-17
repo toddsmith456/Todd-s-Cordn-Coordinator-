@@ -1,0 +1,35 @@
+[Unit]
+Description=cordn-server - MLS delivery coordinator
+Documentation=https://github.com/toddsmith456/Todd-s-Cordn-Coordinator-
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cordn
+Group=cordn
+EnvironmentFile=/etc/cordn/cordn.env
+ExecStart=/usr/bin/cordn-server
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=15s
+# Hardening: the server reads its env + data dir and dials out to relays (wss).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/cordn
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

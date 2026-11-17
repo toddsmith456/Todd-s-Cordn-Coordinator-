@@ -1,0 +1,28 @@
+#!/sbin/openrc-run
+# OpenRC init script for cordn-server (Alpine Linux / postmarketOS)
+
+name="cordn-server"
+description="Cordn MLS delivery coordinator"
+
+command="/usr/bin/cordn-server"
+command_user="${CORDN_USER:-cordn}:${CORDN_GROUP:-cordn}"
+command_background="yes"
+pidfile="/run/${RC_SVCNAME}.pid"
+output_log="/var/log/cordn/cordn.log"
+error_log="/var/log/cordn/cordn.log"
+
+depend() {
+	need net
+	after firewall
+}
+
+start_pre() {
+	checkpath --directory --owner "${command_user}" --mode 0750 /var/lib/cordn
+	checkpath --directory --owner "${command_user}" --mode 0750 /var/log/cordn
+	if [ -f /etc/cordn/cordn.env ]; then
+		set -a
+		# shellcheck disable=SC1091
+		. /etc/cordn/cordn.env
+		set +a
+	fi
+}
