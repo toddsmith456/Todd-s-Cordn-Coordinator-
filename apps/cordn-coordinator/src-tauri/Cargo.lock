@@ -4322,9 +4322,12 @@ dependencies = [
 name = "tauri-plugin-cordn-android-service"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "cordn-core",
  "cordn-server",
  "jni",
+ "nostr",
+ "rusqlite",
  "serde",
  "serde_json",
  "tauri",

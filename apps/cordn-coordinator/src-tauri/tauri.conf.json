@@ -1,6 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Cordn Coordinator",
+  "mainBinaryName": "cordn-coordinator",
   "version": "0.5.6",
   "identifier": "com.toddsmith456.cordn.coordinator",
   "build": {
@@ -26,10 +27,15 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "Todd Smith",
+    "category": "Network",
+    "shortDescription": "Run your own Cordn MLS delivery coordinator",
+    "longDescription": "Self-hosted ContextVM/MCP MLS delivery coordinator over Nostr relays. Stores and streams MLS key packages, welcomes, join requests, and opaque group message streams.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
+      "icons/icon.png",
       "icons/icon.icns",
       "icons/icon.ico"
     ],

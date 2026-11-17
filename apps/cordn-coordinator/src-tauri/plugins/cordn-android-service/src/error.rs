@@ -10,7 +10,8 @@ pub enum Error {
     Json(#[from] serde_json::Error),
     #[error("invalid coordinator config: {0}")]
     InvalidConfig(String),
-    #[error("coordinator service is only available on Android")]
+    #[allow(dead_code)]
+    #[error("coordinator service is not supported on this platform")]
     Unsupported,
     #[cfg(mobile)]
     #[error(transparent)]

@@ -1,0 +1,37 @@
+id: com.toddsmith456.cordn.coordinator
+runtime: org.gnome.Platform
+runtime-version: '48'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: cordn-coordinator
+
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  build-args:
+    - --share=network
+  env:
+    CARGO_HOME: /run/build/cordn-coordinator/cargo
+
+modules:
+  - name: cordn-coordinator
+    buildsystem: simple
+    build-commands:
+      - cargo build --release --manifest-path apps/cordn-coordinator/src-tauri/Cargo.toml --features tauri/custom-protocol
+      - install -Dm755 apps/cordn-coordinator/src-tauri/target/release/cordn-coordinator /app/bin/cordn-coordinator
+      - install -Dm644 packaging/desktop/com.toddsmith456.cordn.coordinator.desktop /app/share/applications/com.toddsmith456.cordn.coordinator.desktop
+      - install -Dm644 packaging/desktop/com.toddsmith456.cordn.coordinator.metainfo.xml /app/share/metainfo/com.toddsmith456.cordn.coordinator.metainfo.xml
+      - install -Dm644 apps/cordn-coordinator/src-tauri/icons/32x32.png /app/share/icons/hicolor/32x32/apps/com.toddsmith456.cordn.coordinator.png
+      - install -Dm644 apps/cordn-coordinator/src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/com.toddsmith456.cordn.coordinator.png
+      - install -Dm644 apps/cordn-coordinator/src-tauri/icons/128x128@2x.png /app/share/icons/hicolor/256x256/apps/com.toddsmith456.cordn.coordinator.png
+      - install -Dm644 apps/cordn-coordinator/src-tauri/icons/icon.png /app/share/icons/hicolor/512x512/apps/com.toddsmith456.cordn.coordinator.png
+    sources:
+      - type: dir
+        path: ../..

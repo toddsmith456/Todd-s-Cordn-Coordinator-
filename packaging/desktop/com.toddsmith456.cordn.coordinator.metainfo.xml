@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.toddsmith456.cordn.coordinator</id>
+  <name>Cordn Coordinator</name>
+  <summary>Run your own Cordn MLS delivery coordinator</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="com.github.toddsmith456">
+    <name>Todd Smith</name>
+  </developer>
+  <description>
+    <p>
+      Self-hosted ContextVM/MCP MLS delivery coordinator over Nostr relays.
+      Publishes your coordinator Nostr identity (npub / nprofile + QR), stores
+      MLS key packages, welcomes, join requests, and opaque per-group message
+      streams in local SQLite storage, and streams messages to group members.
+    </p>
+  </description>
+  <launchable type="desktop-id">com.toddsmith456.cordn.coordinator.desktop</launchable>
+  <url type="homepage">https://github.com/toddsmith456/Todd-s-Cordn-Coordinator-</url>
+  <content_rating type="oars-1.1" />
+</component>

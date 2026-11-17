@@ -165,6 +165,7 @@ trap 'rm -rf "$TMP"' EXIT
 case "$(uname -sm)" in
   Linux\ x86_64)  TARGET=x86_64-unknown-linux-musl ;;
   Linux\ aarch64) TARGET=aarch64-unknown-linux-musl ;;
+  Linux\ i?86)    TARGET=i686-unknown-linux-musl ;;
   Linux\ armv7*)  TARGET=armv7-unknown-linux-musleabihf ;;
   Darwin\ arm64)  TARGET=aarch64-apple-darwin ;;
   Darwin\ x86_64) TARGET=x86_64-apple-darwin ;;

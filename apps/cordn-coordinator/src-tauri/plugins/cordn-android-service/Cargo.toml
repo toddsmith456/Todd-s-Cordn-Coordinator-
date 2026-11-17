@@ -2,7 +2,7 @@
 name = "tauri-plugin-cordn-android-service"
 version = "0.1.0"
 authors = ["Cordn contributors"]
-description = "Android foreground-service host for cordn"
+description = "Android and desktop coordinator host for cordn"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT"
@@ -20,6 +20,15 @@ cordn-core = { path = "../../../../../crates/cordn-core" }
 cordn-server = { path = "../../../../../crates/cordn-server", features = ["server"] }
 jni = "0.21"
 tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+tracing-subscriber = "0.3"
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+cordn-core = { path = "../../../../../crates/cordn-core" }
+cordn-server = { path = "../../../../../crates/cordn-server", features = ["server"] }
+nostr = { version = "0.44", default-features = false }
+rusqlite = { version = "0.37", features = ["bundled"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 tracing-subscriber = "0.3"
 
 [build-dependencies]

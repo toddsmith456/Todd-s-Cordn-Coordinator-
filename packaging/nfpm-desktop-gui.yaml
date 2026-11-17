@@ -1,0 +1,65 @@
+name: "cordn-coordinator"
+arch: "${NFPM_ARCH}"
+platform: "linux"
+version: "${NFPM_VERSION}"
+section: "net"
+priority: "optional"
+maintainer: "Todd Smith <toddsmith456@users.noreply.github.com>"
+description: |
+  Cordn Coordinator Desktop GUI — run your own private MLS delivery coordinator
+  over Nostr relays.
+vendor: "Todd's Cordn Coordinator"
+homepage: "https://github.com/toddsmith456/Todd-s-Cordn-Coordinator-"
+license: "MIT"
+
+overrides:
+  apk:
+    depends:
+      - webkit2gtk-4.1
+      - gtk+3.0
+      - librsvg
+      - font-dejavu
+  archlinux:
+    depends:
+      - webkit2gtk-4.1
+      - gtk3
+      - librsvg
+  deb:
+    depends:
+      - libwebkit2gtk-4.1-0
+      - libgtk-3-0
+      - librsvg2-2
+
+contents:
+  - src: "./dist-gui/cordn-coordinator"
+    dst: "/usr/bin/cordn-coordinator"
+    file_info:
+      mode: 0755
+  - src: "./packaging/desktop/com.toddsmith456.cordn.coordinator.desktop"
+    dst: "/usr/share/applications/com.toddsmith456.cordn.coordinator.desktop"
+    file_info:
+      mode: 0644
+  - src: "./packaging/desktop/com.toddsmith456.cordn.coordinator.metainfo.xml"
+    dst: "/usr/share/metainfo/com.toddsmith456.cordn.coordinator.metainfo.xml"
+    file_info:
+      mode: 0644
+  - src: "./apps/cordn-coordinator/src-tauri/icons/32x32.png"
+    dst: "/usr/share/icons/hicolor/32x32/apps/com.toddsmith456.cordn.coordinator.png"
+    file_info:
+      mode: 0644
+  - src: "./apps/cordn-coordinator/src-tauri/icons/128x128.png"
+    dst: "/usr/share/icons/hicolor/128x128/apps/com.toddsmith456.cordn.coordinator.png"
+    file_info:
+      mode: 0644
+  - src: "./apps/cordn-coordinator/src-tauri/icons/128x128@2x.png"
+    dst: "/usr/share/icons/hicolor/256x256/apps/com.toddsmith456.cordn.coordinator.png"
+    file_info:
+      mode: 0644
+  - src: "./apps/cordn-coordinator/src-tauri/icons/icon.png"
+    dst: "/usr/share/icons/hicolor/512x512/apps/com.toddsmith456.cordn.coordinator.png"
+    file_info:
+      mode: 0644
+  - src: "./LICENSE"
+    dst: "/usr/share/licenses/cordn-coordinator/LICENSE"
+    file_info:
+      mode: 0644

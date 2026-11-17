@@ -1,16 +1,21 @@
 [package]
 name = "cordn-coordinator-app"
 version = "0.5.6"
-description = "Run a cordn MLS delivery coordinator on Android"
+description = "Run a cordn MLS delivery coordinator on Android and Desktop"
 authors = ["Cordn contributors"]
 license = "MIT"
-repository = "https://github.com/Cordn-msg/cordn-rs"
+repository = "https://github.com/toddsmith456/Todd-s-Cordn-Coordinator-"
 edition = "2021"
 rust-version = "1.88"
+default-run = "cordn-coordinator"
 
 [workspace]
 resolver = "2"
 members = [".", "plugins/cordn-android-service"]
+
+[[bin]]
+name = "cordn-coordinator"
+path = "src/main.rs"
 
 [lib]
 name = "cordn_coordinator_app"

@@ -1,8 +1,7 @@
 # syntax=docker/dockerfile:1
 #
-# Ultra-minimal Alpine / static-musl container (~10 MB) for cordn-server.
-# Consumes prebuilt static musl binaries from ./docker-bins/{amd64,arm64,armv7}/cordn-server
-# prepared by the release workflow across linux/amd64, linux/arm64, and linux/arm/v7.
+# Ultra-minimal Alpine / static-musl container (~10 MB) for cordn-server across
+# linux/amd64, linux/arm64, linux/arm/v7, and linux/386.
 
 FROM alpine:3.21
 ARG TARGETARCH
@@ -18,6 +17,7 @@ RUN case "${TARGETARCH}${TARGETVARIANT}" in \
       amd64) cp /tmp/docker-bins/amd64/cordn-server /usr/local/bin/cordn-server ;; \
       arm64) cp /tmp/docker-bins/arm64/cordn-server /usr/local/bin/cordn-server ;; \
       armv7) cp /tmp/docker-bins/armv7/cordn-server /usr/local/bin/cordn-server ;; \
+      386)   cp /tmp/docker-bins/386/cordn-server   /usr/local/bin/cordn-server ;; \
       *) echo "Unsupported platform: ${TARGETARCH}${TARGETVARIANT}" >&2; exit 1 ;; \
     esac \
  && chmod 0755 /usr/local/bin/cordn-server \

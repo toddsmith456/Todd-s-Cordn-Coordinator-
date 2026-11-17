@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Cordn Coordinator
+Comment=Run your own Cordn MLS delivery coordinator
+Exec=cordn-coordinator
+Icon=com.toddsmith456.cordn.coordinator
+Terminal=false
+Categories=Network;
+StartupWMClass=cordn-coordinator

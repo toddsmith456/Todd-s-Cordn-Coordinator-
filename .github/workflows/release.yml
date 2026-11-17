@@ -1,10 +1,12 @@
 name: Release
 
-# Server lane: triggered by `v*` tags (parity `vX.Y.Z` or packaging-only
-# `vX.Y.Z-<label>.N`, pushed by `make patch|minor|major`). Builds 22 server
-# release artifacts across Linux (gnu + musl tarballs, deb, rpm, Alpine apk,
-# Arch pkg.tar.zst), macOS (arm64 + x86_64), Windows (x86_64 + arm64), and
-# multi-arch GHCR OCI containers (Debian + ultra-small Alpine/musl).
+# Server + Desktop GUI lane: triggered by `v*` tags.
+# Builds:
+#   - cordn-server: Linux (amd64, arm64, i386/32-bit, armv7) tarballs + .deb + .rpm + Alpine .apk + Arch .pkg.tar.zst,
+#                   macOS (arm64, x86_64), Windows (x86_64, arm64), and multi-arch GHCR Docker images.
+#   - cordn-coordinator (Desktop GUI): Linux .deb (amd64, arm64, i386/32-bit), .flatpak (x86_64, aarch64),
+#                   Alpine .apk (x86_64, aarch64), .rpm (x86_64, aarch64), .AppImage (x86_64),
+#                   Arch .pkg.tar.zst (x86_64, aarch64), macOS Universal (.dmg), and Windows (.exe NSIS + .msi).
 # The Android app has its own lane: `android-v*` tags → release-android.yml.
 
 on:
@@ -16,16 +18,21 @@ permissions:
   contents: read
 
 jobs:
+  # ============================================================================
+  # 1. HEADLESS SERVER BINARIES (cordn-server)
+  # ============================================================================
   build:
-    name: build (${{ matrix.target }})
+    name: server (${{ matrix.target }})
     strategy:
       fail-fast: false
       matrix:
         include:
           - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu, archive: tar.gz }
           - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, archive: tar.gz }
+          - { os: ubuntu-24.04, target: i686-unknown-linux-gnu, archive: tar.gz, gnu_i686: true }
           - { os: ubuntu-24.04, target: x86_64-unknown-linux-musl, archive: tar.gz, musl_native: true }
           - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl, archive: tar.gz, musl_native: true }
+          - { os: ubuntu-24.04, target: i686-unknown-linux-musl, archive: tar.gz, musl_i686: true }
           - { os: ubuntu-24.04, target: armv7-unknown-linux-musleabihf, archive: tar.gz, musl_armv7: true }
           - { os: macos-15, target: aarch64-apple-darwin, archive: tar.gz }
           - { os: macos-15-intel, target: x86_64-apple-darwin, archive: tar.gz }
@@ -40,6 +47,24 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends musl-tools
+
+      - name: Install 32-bit x86 (i686) multilib gcc
+        if: matrix.gnu_i686 == true
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-multilib libc6-dev-i386
+
+      - name: Install 32-bit x86 (i686) musl cross-toolchain
+        if: matrix.musl_i686 == true
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 https://toolchains.bootlin.com/downloads/releases/toolchains/x86-i686/tarballs/x86-i686--musl--stable-2024.05-1.tar.xz -o /tmp/i686-musl.tar.xz
+          echo "f16c0f2cff527bdf9753135d5e22dfe81390f3646c34d05d951d23f76fbe06e9  /tmp/i686-musl.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/i686-musl.tar.xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/x86-i686--musl--stable-2024.05-1/bin" >> "$GITHUB_PATH"
+          echo "CC_i686_unknown_linux_musl=i686-linux-gcc" >> "$GITHUB_ENV"
+          echo "AR_i686_unknown_linux_musl=i686-linux-ar" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_I686_UNKNOWN_LINUX_MUSL_LINKER=i686-linux-gcc" >> "$GITHUB_ENV"
 
       - name: Install armv7 musl cross-toolchain
         if: matrix.musl_armv7 == true
@@ -104,7 +129,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.target }}
+          name: release-srv-${{ matrix.target }}
           path: out-release/*
           if-no-files-found: error
 
@@ -115,33 +140,29 @@ jobs:
           path: out-raw/cordn-server
           if-no-files-found: error
 
-  # Native Linux distro packages (.deb, .rpm, Alpine .apk, Arch .pkg.tar.zst)
+  # Native Linux server packages (.deb, .rpm, Alpine .apk, Arch .pkg.tar.zst)
   packages:
-    name: linux packages (deb, rpm, apk, arch)
+    name: server linux packages (deb, rpm, apk, arch)
     needs: [build]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-
-      - name: Download Linux binaries
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           pattern: raw-bin-*
           path: linux-bins
-
       - name: Install nFPM
         run: |
           curl -fsSL https://github.com/goreleaser/nfpm/releases/download/v2.47.0/nfpm_2.47.0_Linux_x86_64.tar.gz -o /tmp/nfpm.tar.gz
           tar -xzf /tmp/nfpm.tar.gz -C /usr/local/bin nfpm
-
-      - name: Build deb, rpm, Arch pkg.tar.zst, and Alpine apk packages
+      - name: Build server deb, rpm, Arch pkg.tar.zst, and Alpine apk packages
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p dist-bin out-pkgs
 
-          # Systemd-based distro packages (.deb, .rpm, .pkg.tar.zst) from glibc builds
-          for pair in "amd64:x86_64-unknown-linux-gnu" "arm64:aarch64-unknown-linux-gnu"; do
+          # Systemd-based distro packages (.deb, .rpm, .pkg.tar.zst) across amd64, arm64, and 386 (i386/i686)
+          for pair in "amd64:x86_64-unknown-linux-gnu" "arm64:aarch64-unknown-linux-gnu" "386:i686-unknown-linux-gnu"; do
             arch="${pair%%:*}"
             triple="${pair#*:}"
             install -m 0755 "linux-bins/raw-bin-${triple}/cordn-server" dist-bin/cordn-server
@@ -151,8 +172,8 @@ jobs:
             done
           done
 
-          # OpenRC + static musl Alpine Linux / postmarketOS .apk packages
-          for pair in "amd64:x86_64-unknown-linux-musl" "arm64:aarch64-unknown-linux-musl" "arm7:armv7-unknown-linux-musleabihf"; do
+          # OpenRC + static musl Alpine Linux / postmarketOS .apk packages (x86_64, aarch64, armv7, x86/32-bit)
+          for pair in "amd64:x86_64-unknown-linux-musl" "arm64:aarch64-unknown-linux-musl" "arm7:armv7-unknown-linux-musleabihf" "386:i686-unknown-linux-musl"; do
             arch="${pair%%:*}"
             triple="${pair#*:}"
             install -m 0755 "linux-bins/raw-bin-${triple}/cordn-server" dist-bin/cordn-server
@@ -161,16 +182,360 @@ jobs:
           done
 
           ls -lh out-pkgs/
-
       - uses: actions/upload-artifact@v4
         with:
-          name: release-linux-packages
+          name: release-srv-linux-packages
           path: out-pkgs/*
           if-no-files-found: error
 
-  # Multi-arch Debian Docker image → GHCR (linux/amd64, linux/arm64).
-  # Reuses the native amd64 + arm64 glibc binaries from `build` instead of
-  # recompiling Rust under slow QEMU arm64 emulation!
+  # ============================================================================
+  # 2. DESKTOP GUI APP (cordn-coordinator — Linux deb/rpm/AppImage/Arch)
+  # ============================================================================
+  gui-linux:
+    name: desktop linux (${{ matrix.arch_label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, arch_label: x86_64, nfpm_arch: amd64, bundles: "deb,rpm,appimage" }
+          - { os: ubuntu-24.04-arm, arch_label: arm64, nfpm_arch: arm64, bundles: "deb,rpm" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Tauri GTK/WebKit2GTK build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            libxdo-dev libssl-dev patchelf build-essential curl wget file rpm
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/cordn-coordinator/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+      - working-directory: apps/cordn-coordinator
+        run: pnpm install --frozen-lockfile
+      - name: Build Tauri Linux bundles (${{ matrix.bundles }})
+        working-directory: apps/cordn-coordinator
+        env:
+          NO_STRIP: "true"
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: pnpm exec tauri build --bundles ${{ matrix.bundles }}
+      - name: Stage bundles + build Arch Linux GUI package
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p out-gui dist-gui
+
+          find apps/cordn-coordinator/src-tauri/target/release/bundle -type f \
+            \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) \
+            -exec cp -v {} out-gui/ \;
+
+          # Normalize Tauri GUI package filenames with explicit `cordn-coordinator` prefix
+          for f in out-gui/*; do
+            base="$(basename "$f")"
+            clean="$(printf '%s' "$base" | sed -E 's/^Cordn[ _-]+Coordinator/cordn-coordinator/I; s/ /-/g')"
+            if [ "$base" != "$clean" ]; then
+              mv "out-gui/$base" "out-gui/$clean"
+            fi
+          done
+
+          # Also package Arch Linux GUI .pkg.tar.zst via nFPM
+          NFPM_TGZ_ARCH="x86_64"
+          if [ "$(uname -m)" = "aarch64" ]; then NFPM_TGZ_ARCH="arm64"; fi
+          curl -fsSL "https://github.com/goreleaser/nfpm/releases/download/v2.47.0/nfpm_2.47.0_Linux_${NFPM_TGZ_ARCH}.tar.gz" -o /tmp/nfpm.tar.gz
+          tar -xzf /tmp/nfpm.tar.gz -C /tmp nfpm
+          install -m 0755 apps/cordn-coordinator/src-tauri/target/release/cordn-coordinator dist-gui/cordn-coordinator
+          NFPM_ARCH="${{ matrix.nfpm_arch }}" NFPM_VERSION="$VERSION" \
+            /tmp/nfpm pkg --config packaging/nfpm-desktop-gui.yaml --packager archlinux --target out-gui/
+
+          ls -lh out-gui/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-gui-linux-${{ matrix.arch_label }}
+          path: out-gui/*
+          if-no-files-found: error
+
+  # 32-bit x86 (i386/i686) Desktop GUI .deb built cleanly in Debian Bookworm i386 container
+  gui-linux-i386:
+    name: desktop linux (i386 32-bit deb)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/cordn-coordinator/pnpm-lock.yaml
+      - name: Build static frontend on host
+        working-directory: apps/cordn-coordinator
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+      - name: Compile 32-bit i686 Tauri GUI binary inside Debian Bookworm i386 container
+        run: |
+          docker run --rm --platform linux/386 \
+            -v "$PWD:/work" -w /work \
+            debian:bookworm bash -euxc '
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                ca-certificates curl git pkg-config build-essential \
+                libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libssl-dev
+              curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+              export PATH="/root/.cargo/bin:$PATH"
+              cargo build --release --manifest-path apps/cordn-coordinator/src-tauri/Cargo.toml --features tauri/custom-protocol
+              mkdir -p dist-gui
+              cp apps/cordn-coordinator/src-tauri/target/release/cordn-coordinator dist-gui/cordn-coordinator
+              strip dist-gui/cordn-coordinator || true
+            '
+          sudo chown -R "$(id -u):$(id -g)" dist-gui apps/cordn-coordinator/src-tauri/target
+      - name: Package 32-bit i386 Desktop GUI .deb via nFPM
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p out-gui-i386
+          curl -fsSL https://github.com/goreleaser/nfpm/releases/download/v2.47.0/nfpm_2.47.0_Linux_x86_64.tar.gz -o /tmp/nfpm.tar.gz
+          tar -xzf /tmp/nfpm.tar.gz -C /tmp nfpm
+          NFPM_ARCH="386" NFPM_VERSION="$VERSION" \
+            /tmp/nfpm pkg --config packaging/nfpm-desktop-gui.yaml --packager deb --target out-gui-i386/
+          ls -lh out-gui-i386/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-gui-linux-i386
+          path: out-gui-i386/*
+          if-no-files-found: error
+
+  # ============================================================================
+  # 3. FLATPAK DESKTOP BUNDLES (x86_64 & aarch64)
+  # ============================================================================
+  gui-flatpak:
+    name: desktop flatpak (${{ matrix.flatpak_arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, flatpak_arch: x86_64 }
+          - { os: ubuntu-24.04-arm, flatpak_arch: aarch64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/cordn-coordinator/pnpm-lock.yaml
+      - name: Build static frontend on host
+        working-directory: apps/cordn-coordinator
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+      - name: Install Flatpak & GNOME 48 SDK + Rust extension
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder elfutils ca-certificates
+          flatpak --user remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak --user install -y --noninteractive flathub \
+            org.gnome.Platform//48 \
+            org.gnome.Sdk//48 \
+            org.freedesktop.Sdk.Extension.rust-stable//24.08
+      - name: Build single-file .flatpak bundle
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p out-flatpak
+          flatpak-builder --user --force-clean --repo=flatpak-repo \
+            flatpak-build-dir packaging/flatpak/com.toddsmith456.cordn.coordinator.yml
+          flatpak build-bundle flatpak-repo \
+            "out-flatpak/cordn-coordinator_${VERSION}_${{ matrix.flatpak_arch }}.flatpak" \
+            com.toddsmith456.cordn.coordinator \
+            --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
+          ls -lh out-flatpak/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-gui-flatpak-${{ matrix.flatpak_arch }}
+          path: out-flatpak/*
+          if-no-files-found: error
+
+  # ============================================================================
+  # 4. ALPINE LINUX DESKTOP GUI .apk (x86_64 & aarch64)
+  # ============================================================================
+  gui-alpine:
+    name: desktop alpine apk (${{ matrix.apk_arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, apk_arch: x86_64, nfpm_arch: amd64 }
+          - { os: ubuntu-24.04-arm, apk_arch: aarch64, nfpm_arch: arm64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/cordn-coordinator/pnpm-lock.yaml
+      - name: Build static frontend on host
+        working-directory: apps/cordn-coordinator
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+      - name: Build musl-dynamic Tauri GUI binary inside Alpine 3.21 container
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" -w /work \
+            alpine:3.21 sh -euxc '
+              apk add --no-cache \
+                build-base pkgconf curl git ca-certificates \
+                webkit2gtk-4.1-dev gtk+3.0-dev librsvg-dev libayatana-appindicator-dev openssl-dev
+              curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+              export PATH="/root/.cargo/bin:$PATH"
+              export RUSTFLAGS="-C target-feature=-crt-static"
+              cargo build --release --manifest-path apps/cordn-coordinator/src-tauri/Cargo.toml --features tauri/custom-protocol
+              mkdir -p dist-gui
+              cp apps/cordn-coordinator/src-tauri/target/release/cordn-coordinator dist-gui/cordn-coordinator
+              strip dist-gui/cordn-coordinator || true
+            '
+          sudo chown -R "$(id -u):$(id -g)" dist-gui apps/cordn-coordinator/src-tauri/target
+      - name: Package Alpine Linux GUI .apk via nFPM
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p out-gui-alpine
+          NFPM_TGZ_ARCH="x86_64"
+          if [ "$(uname -m)" = "aarch64" ]; then NFPM_TGZ_ARCH="arm64"; fi
+          curl -fsSL "https://github.com/goreleaser/nfpm/releases/download/v2.47.0/nfpm_2.47.0_Linux_${NFPM_TGZ_ARCH}.tar.gz" -o /tmp/nfpm.tar.gz
+          tar -xzf /tmp/nfpm.tar.gz -C /tmp nfpm
+          NFPM_ARCH="${{ matrix.nfpm_arch }}" NFPM_VERSION="$VERSION" \
+            /tmp/nfpm pkg --config packaging/nfpm-desktop-gui.yaml --packager apk --target out-gui-alpine/
+          ls -lh out-gui-alpine/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-gui-alpine-${{ matrix.apk_arch }}
+          path: out-gui-alpine/*
+          if-no-files-found: error
+
+  # ============================================================================
+  # 5. MACOS & WINDOWS DESKTOP GUI INSTALLERS
+  # ============================================================================
+  gui-macos:
+    name: desktop macos (universal dmg)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/cordn-coordinator/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - working-directory: apps/cordn-coordinator
+        run: pnpm install --frozen-lockfile
+      - name: Build Universal macOS DMG
+        working-directory: apps/cordn-coordinator
+        run: pnpm exec tauri build --target universal-apple-darwin --bundles dmg
+      - name: Stage macOS DMG
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p out-gui-macos
+          dmg="$(find apps/cordn-coordinator/src-tauri/target/universal-apple-darwin/release/bundle/dmg -name '*.dmg' -print -quit)"
+          cp "$dmg" "out-gui-macos/cordn-coordinator_${VERSION}_universal.dmg"
+          ls -lh out-gui-macos/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-gui-macos-universal
+          path: out-gui-macos/*
+          if-no-files-found: error
+
+  gui-windows:
+    name: desktop windows (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, bundles: "nsis,msi", win_arm64: false }
+          - { os: windows-11-arm, target: aarch64-pc-windows-msvc, bundles: "nsis", win_arm64: true }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure clang-cl for ring on Windows ARM64
+        if: matrix.win_arm64 == true
+        shell: pwsh
+        run: |
+          $clangCl = Get-Command clang-cl.exe -ErrorAction SilentlyContinue
+          if (-not $clangCl) {
+            $candidates = @(
+              "C:\Program Files\LLVM\bin\clang-cl.exe",
+              "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\Llvm\ARM64\bin\clang-cl.exe",
+              "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\Llvm\x64\bin\clang-cl.exe",
+              "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\Llvm\ARM64\bin\clang-cl.exe",
+              "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\Llvm\x64\bin\clang-cl.exe"
+            )
+            foreach ($p in $candidates) {
+              if (Test-Path $p) {
+                Add-Content -Path $env:GITHUB_PATH -Value (Split-Path -Parent $p)
+                $clangCl = $p
+                break
+              }
+            }
+          }
+          if (-not $clangCl) {
+            choco install llvm -y --no-progress
+            Add-Content -Path $env:GITHUB_PATH -Value "C:\Program Files\LLVM\bin"
+          }
+          Add-Content -Path $env:GITHUB_ENV -Value "CC_aarch64_pc_windows_msvc=clang-cl.exe"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/cordn-coordinator/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - working-directory: apps/cordn-coordinator
+        run: pnpm install --frozen-lockfile
+      - name: Build Windows Desktop Installers
+        working-directory: apps/cordn-coordinator
+        run: pnpm exec tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+      - name: Stage Windows Installers
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out-gui-win | Out-Null
+          Get-ChildItem -Path "apps/cordn-coordinator/src-tauri/target/${{ matrix.target }}/release/bundle" -Recurse -Include *.exe,*.msi | ForEach-Object {
+            $cleanName = $_.Name -replace ' ', '-'
+            Copy-Item $_.FullName -Destination "out-gui-win/$cleanName"
+          }
+          Get-ChildItem out-gui-win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-gui-win-${{ matrix.target }}
+          path: out-gui-win/*
+          if-no-files-found: error
+
+  # ============================================================================
+  # 6. MULTI-ARCH GHCR DOCKER IMAGES
+  # ============================================================================
   docker:
     needs: [build]
     runs-on: ubuntu-24.04
@@ -209,7 +574,6 @@ jobs:
           push: true
           tags: ${{ steps.t.outputs.tags }}
 
-  # Multi-arch ultra-small Alpine/musl Docker image → GHCR (linux/amd64, linux/arm64, linux/arm/v7).
   docker-alpine:
     needs: [build]
     runs-on: ubuntu-24.04
@@ -249,8 +613,19 @@ jobs:
           push: true
           tags: ${{ steps.t.outputs.tags }}
 
+  # ============================================================================
+  # 7. PUBLISH GITHUB RELEASE
+  # ============================================================================
   release:
-    needs: [build, packages]
+    needs:
+      - build
+      - packages
+      - gui-linux
+      - gui-linux-i386
+      - gui-flatpak
+      - gui-alpine
+      - gui-macos
+      - gui-windows
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -260,16 +635,17 @@ jobs:
           pattern: release-*
           path: artifacts
           merge-multiple: true
-      - name: Verify artifact count and generate SHA256SUMS
+      - name: Generate SHA256SUMS
         run: |
           cd artifacts
+          rm -f SHA256SUMS
           ls -lh
           count="$(ls -1 | wc -l)"
           echo "Total release files before SHA256SUMS: $count"
-          test "$count" -eq 18 || { echo "Expected 18 package/archive artifacts, got $count" >&2; exit 1; }
+          test "$count" -ge 35 || { echo "Expected >= 35 package/archive artifacts, got $count" >&2; exit 1; }
           sha256sum * > SHA256SUMS
           cat SHA256SUMS
-      - name: Create release
+      - name: Create or update release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
