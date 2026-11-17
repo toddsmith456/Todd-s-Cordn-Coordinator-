@@ -1,0 +1,22 @@
+# syntax=docker/dockerfile:1
+#
+# Multi-arch Debian runtime image consuming natively built amd64 & arm64 glibc
+# release binaries from ./docker-bins-gnu/{amd64,arm64}/cordn-server (avoids
+# 20-minute QEMU arm64 Rust compilation during release).
+
+FROM debian:bookworm-slim
+ARG TARGETARCH
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --system --no-create-home --uid 10001 cordn \
+ && mkdir -p /data && chown cordn:cordn /data
+
+COPY docker-bins-gnu/${TARGETARCH}/cordn-server /usr/local/bin/cordn-server
+RUN chmod 0755 /usr/local/bin/cordn-server
+
+USER cordn
+ENV CORDN_STORAGE_BACKEND=memory
+ENV CORDN_SQLITE_PATH=/data/cordn.sqlite
+ENTRYPOINT ["cordn-server"]

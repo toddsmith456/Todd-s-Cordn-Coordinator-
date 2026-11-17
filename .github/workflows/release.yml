@@ -44,12 +44,14 @@ jobs:
       - name: Install armv7 musl cross-toolchain
         if: matrix.musl_armv7 == true
         run: |
-          curl -fsSL https://musl.cc/armv7l-linux-musleabihf-cross.tgz -o /tmp/armv7-musl.tgz
-          tar -xzf /tmp/armv7-musl.tgz -C "$RUNNER_TEMP"
-          echo "$RUNNER_TEMP/armv7l-linux-musleabihf-cross/bin" >> "$GITHUB_PATH"
-          echo "CC_armv7_unknown_linux_musleabihf=armv7l-linux-musleabihf-gcc" >> "$GITHUB_ENV"
-          echo "AR_armv7_unknown_linux_musleabihf=armv7l-linux-musleabihf-ar" >> "$GITHUB_ENV"
-          echo "CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER=armv7l-linux-musleabihf-gcc" >> "$GITHUB_ENV"
+          set -euo pipefail
+          curl -fsSL --retry 3 https://toolchains.bootlin.com/downloads/releases/toolchains/armv7-eabihf/tarballs/armv7-eabihf--musl--stable-2024.05-1.tar.xz -o /tmp/armv7-musl.tar.xz
+          echo "5b34157a4c9f53064002f12f57c42836cd551c591a4be6a99b3ee201add506aa  /tmp/armv7-musl.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/armv7-musl.tar.xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/armv7-eabihf--musl--stable-2024.05-1/bin" >> "$GITHUB_PATH"
+          echo "CC_armv7_unknown_linux_musleabihf=arm-buildroot-linux-musleabihf-gcc" >> "$GITHUB_ENV"
+          echo "AR_armv7_unknown_linux_musleabihf=arm-buildroot-linux-musleabihf-ar" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER=arm-buildroot-linux-musleabihf-gcc" >> "$GITHUB_ENV"
 
       - name: Ensure clang-cl for ring on Windows ARM64
         if: matrix.win_arm64 == true
@@ -167,13 +169,25 @@ jobs:
           if-no-files-found: error
 
   # Multi-arch Debian Docker image → GHCR (linux/amd64, linux/arm64).
+  # Reuses the native amd64 + arm64 glibc binaries from `build` instead of
+  # recompiling Rust under slow QEMU arm64 emulation!
   docker:
+    needs: [build]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: raw-bin-*gnu*
+          path: gnu-bins
+      - name: Stage native glibc binaries
+        run: |
+          mkdir -p docker-bins-gnu/amd64 docker-bins-gnu/arm64
+          install -m 0755 gnu-bins/raw-bin-x86_64-unknown-linux-gnu/cordn-server docker-bins-gnu/amd64/cordn-server
+          install -m 0755 gnu-bins/raw-bin-aarch64-unknown-linux-gnu/cordn-server docker-bins-gnu/arm64/cordn-server
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
@@ -190,11 +204,10 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
+          file: packaging/Dockerfile.debian-prebuilt
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.t.outputs.tags }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
   # Multi-arch ultra-small Alpine/musl Docker image → GHCR (linux/amd64, linux/arm64, linux/arm/v7).
   docker-alpine:
