@@ -28,7 +28,7 @@
     "active": true,
     "targets": "all",
     "publisher": "Todd Smith",
-    "category": "Network",
+    "category": "Utility",
     "shortDescription": "Run your own Cordn MLS delivery coordinator",
     "longDescription": "Self-hosted ContextVM/MCP MLS delivery coordinator over Nostr relays. Stores and streams MLS key packages, welcomes, join requests, and opaque group message streams.",
     "icon": [
