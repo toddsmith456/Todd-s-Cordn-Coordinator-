@@ -94,7 +94,7 @@ struct Inner {
 
 pub struct CordnAndroidService<R: Runtime> {
     inner: Arc<Inner>,
-    _marker: std::marker::PhantomData<R>,
+    _marker: std::marker::PhantomData<fn() -> R>,
 }
 
 pub fn init<R: Runtime, C: DeserializeOwned>(
@@ -135,12 +135,16 @@ impl<R: Runtime> CordnAndroidService<R> {
         if let Some(private_key_hex) = &payload.private_key_hex {
             let trimmed = private_key_hex.trim();
             if !trimmed.is_empty() {
-                runtime::validate_private_key(trimmed)
-                    .map_err(|_| crate::Error::InvalidConfig("private key is not a valid Nostr secret key".into()))?;
+                runtime::validate_private_key(trimmed).map_err(|_| {
+                    crate::Error::InvalidConfig(
+                        "private key is not a valid Nostr secret key".into(),
+                    )
+                })?;
             }
         }
 
-        let private_key = get_or_create_identity(&self.inner.data_dir, payload.private_key_hex.as_deref())?;
+        let private_key =
+            get_or_create_identity(&self.inner.data_dir, payload.private_key_hex.as_deref())?;
         write_atomic(
             &self.inner.data_dir.join("cordn-config.json"),
             &serde_json::to_vec(&payload.config)?,
@@ -213,7 +217,9 @@ impl<R: Runtime> CordnAndroidService<R> {
         let mut group_messages = None;
 
         if db_path.exists() {
-            if let Ok(conn) = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
+            if let Ok(conn) =
+                Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            {
                 key_packages = count_table(&conn, "key_packages");
                 welcomes = count_table(&conn, "welcomes");
                 join_requests = count_table(&conn, "join_requests");
@@ -260,9 +266,8 @@ impl<R: Runtime> CordnAndroidService<R> {
     }
 
     pub fn encode_pubkey(&self, payload: EncodePubkeyRequest) -> crate::Result<PubkeyDisplay> {
-        let (npub, nprofile) =
-            runtime::pubkey_display(&payload.public_key, &payload.relay_urls)
-                .map_err(|error| crate::Error::InvalidConfig(format!("{error:#}")))?;
+        let (npub, nprofile) = runtime::pubkey_display(&payload.public_key, &payload.relay_urls)
+            .map_err(|error| crate::Error::InvalidConfig(format!("{error:#}")))?;
         Ok(PubkeyDisplay { npub, nprofile })
     }
 
@@ -330,7 +335,10 @@ fn spawn_worker(inner: Arc<Inner>, config: CoordinatorConfig, private_key_hex: S
     }
 
     std::thread::spawn(move || {
-        let rt = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+        let rt = match tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+        {
             Ok(rt) => rt,
             Err(err) => {
                 let mut guard = inner.worker.lock().unwrap();
@@ -418,11 +426,14 @@ fn reschedule_timer(inner: &Arc<Inner>) {
 
     let weak_inner = Arc::downgrade(inner);
     std::thread::spawn(move || {
-        let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_time().build() else {
+        let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+        else {
             return;
         };
         rt.block_on(async move {
-            let mut cancel_rx = cancel_rx_wrap(cancel_tx);
+            let mut cancel_rx = cancel_tx;
             loop {
                 let Some(strong) = weak_inner.upgrade() else {
                     break;
@@ -431,7 +442,12 @@ fn reschedule_timer(inner: &Arc<Inner>) {
                 if !stored.enabled {
                     break;
                 }
-                let Some(next_ms) = stored.times.iter().filter_map(|t| next_occurrence_ms(t)).min() else {
+                let Some(next_ms) = stored
+                    .times
+                    .iter()
+                    .filter_map(|t| next_occurrence_ms(t))
+                    .min()
+                else {
                     break;
                 };
                 let now_ms = now_millis();
@@ -450,10 +466,6 @@ fn reschedule_timer(inner: &Arc<Inner>) {
             }
         });
     });
-}
-
-async fn cancel_rx_wrap(rx: oneshot::Receiver<()>) {
-    let _ = rx.await;
 }
 
 async fn perform_scheduled_restart(inner: &Arc<Inner>) {
@@ -528,9 +540,7 @@ fn build_server_config(
 }
 
 fn non_empty(value: Option<String>) -> Option<String> {
-    value
-        .map(|v| v.trim().to_owned())
-        .filter(|v| !v.is_empty())
+    value.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
 }
 
 fn get_or_create_identity(data_dir: &Path, imported: Option<&str>) -> crate::Result<String> {
@@ -543,8 +553,9 @@ fn get_or_create_identity(data_dir: &Path, imported: Option<&str>) -> crate::Res
                     "private key must be 64 hex characters".into(),
                 ));
             }
-            runtime::validate_private_key(&normalized)
-                .map_err(|_| crate::Error::InvalidConfig("private key is not a valid Nostr secret key".into()))?;
+            runtime::validate_private_key(&normalized).map_err(|_| {
+                crate::Error::InvalidConfig("private key is not a valid Nostr secret key".into())
+            })?;
             store_identity_file(&path, &normalized)?;
             return Ok(normalized);
         }
@@ -580,7 +591,11 @@ fn build_status(data_dir: &Path, worker: &WorkerState) -> ServiceStatus {
     let label = health_label(&worker.state, health.as_ref());
     ServiceStatus {
         health_label: Some(label),
-        health: if worker.state == "running" { health } else { None },
+        health: if worker.state == "running" {
+            health
+        } else {
+            None
+        },
         state: worker.state.clone(),
         public_key: worker.public_key.clone(),
         last_error: worker.last_error.clone(),
@@ -599,7 +614,7 @@ fn health_label(state: &str, health: Option<&serde_json::Value>) -> String {
     let updated_at = h.get("updatedAt").and_then(|v| v.as_i64()).unwrap_or(0);
     let now_i64 = i64::try_from(now_millis()).unwrap_or(i64::MAX);
     let age = now_i64.saturating_sub(updated_at);
-    if age > 90_000 || age < -30_000 {
+    if !(-30_000..=90_000).contains(&age) {
         return "Status stale — check coordinator".into();
     }
     let critical = h
@@ -638,7 +653,7 @@ fn validate_schedule(times: &[String]) -> crate::Result<()> {
         let Some((hh, mm)) = parse_hhmm(t) else {
             return Err(crate::Error::InvalidConfig("Invalid restart time".into()));
         };
-        parsed_mins.push(i32::from(hh) * 60 + i32::from(mm));
+        parsed_mins.push((hh as i32) * 60 + (mm as i32));
     }
     if times.len() == 2 {
         if parsed_mins[0] == parsed_mins[1] {
@@ -681,7 +696,10 @@ fn next_occurrence_ms(time_str: &str) -> Option<u64> {
     let next = if candidate > now {
         candidate
     } else {
-        let tomorrow_naive = now.date_naive().checked_add_days(Days::new(1))?.and_time(target_time);
+        let tomorrow_naive = now
+            .date_naive()
+            .checked_add_days(Days::new(1))?
+            .and_time(target_time);
         Local
             .from_local_datetime(&tomorrow_naive)
             .earliest()

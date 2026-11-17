@@ -5,6 +5,7 @@ Control and inspect the local cordn coordinator service
 #### This default permission set includes the following:
 
 - `allow-start`
+- `allow-restart-schedule`
 - `allow-stop`
 - `allow-status`
 - `allow-config`
@@ -202,6 +203,32 @@ Enables the reset_identity command without any pre-configured scope.
 <td>
 
 Denies the reset_identity command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`cordn-android-service:allow-restart-schedule`
+
+</td>
+<td>
+
+Enables the restart_schedule command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`cordn-android-service:deny-restart-schedule`
+
+</td>
+<td>
+
+Denies the restart_schedule command without any pre-configured scope.
 
 </td>
 </tr>

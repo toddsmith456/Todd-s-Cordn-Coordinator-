@@ -720,6 +720,7 @@ dependencies = [
  "contextvm-sdk",
  "cordn-core",
  "nostr",
+ "nostr-sdk",
  "rmcp",
  "schemars 1.2.2",
  "serde",

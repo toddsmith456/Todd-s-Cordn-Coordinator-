@@ -379,6 +379,18 @@
           "markdownDescription": "Denies the reset_identity command without any pre-configured scope."
         },
         {
+          "description": "Enables the restart_schedule command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-restart-schedule",
+          "markdownDescription": "Enables the restart_schedule command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the restart_schedule command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-restart-schedule",
+          "markdownDescription": "Denies the restart_schedule command without any pre-configured scope."
+        },
+        {
           "description": "Enables the start command without any pre-configured scope.",
           "type": "string",
           "const": "allow-start",
@@ -415,10 +427,10 @@
           "markdownDescription": "Denies the stop command without any pre-configured scope."
         },
         {
-          "description": "Control and inspect the local cordn coordinator service\n#### This default permission set includes:\n\n- `allow-start`\n- `allow-stop`\n- `allow-status`\n- `allow-config`\n- `allow-diagnostics`\n- `allow-encode-pubkey`\n- `allow-flush-data`\n- `allow-reset-identity`\n- `allow-request-battery-exemption`\n- `allow-request-notification-permission`",
+          "description": "Control and inspect the local cordn coordinator service\n#### This default permission set includes:\n\n- `allow-start`\n- `allow-restart-schedule`\n- `allow-stop`\n- `allow-status`\n- `allow-config`\n- `allow-diagnostics`\n- `allow-encode-pubkey`\n- `allow-flush-data`\n- `allow-reset-identity`\n- `allow-request-battery-exemption`\n- `allow-request-notification-permission`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Control and inspect the local cordn coordinator service\n#### This default permission set includes:\n\n- `allow-start`\n- `allow-stop`\n- `allow-status`\n- `allow-config`\n- `allow-diagnostics`\n- `allow-encode-pubkey`\n- `allow-flush-data`\n- `allow-reset-identity`\n- `allow-request-battery-exemption`\n- `allow-request-notification-permission`"
+          "markdownDescription": "Control and inspect the local cordn coordinator service\n#### This default permission set includes:\n\n- `allow-start`\n- `allow-restart-schedule`\n- `allow-stop`\n- `allow-status`\n- `allow-config`\n- `allow-diagnostics`\n- `allow-encode-pubkey`\n- `allow-flush-data`\n- `allow-reset-identity`\n- `allow-request-battery-exemption`\n- `allow-request-notification-permission`"
         }
       ]
     }

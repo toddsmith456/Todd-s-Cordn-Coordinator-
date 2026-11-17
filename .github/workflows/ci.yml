@@ -89,4 +89,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - run: cargo clippy --manifest-path apps/cordn-coordinator/src-tauri/Cargo.toml --all-targets -- -D warnings
+      - run: |
+          mkdir -p apps/cordn-coordinator/build
+          test -f apps/cordn-coordinator/build/index.html || printf '<!doctype html>\n' > apps/cordn-coordinator/build/index.html
+          cargo clippy --locked --manifest-path apps/cordn-coordinator/src-tauri/Cargo.toml --all-targets -- -D warnings

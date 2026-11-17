@@ -24,7 +24,7 @@ modules:
   - name: cordn-coordinator
     buildsystem: simple
     build-commands:
-      - cargo build --release --manifest-path apps/cordn-coordinator/src-tauri/Cargo.toml --features tauri/custom-protocol
+      - cargo build --release --locked --manifest-path apps/cordn-coordinator/src-tauri/Cargo.toml --features tauri/custom-protocol
       - install -Dm755 apps/cordn-coordinator/src-tauri/target/release/cordn-coordinator /app/bin/cordn-coordinator
       - install -Dm644 packaging/desktop/com.toddsmith456.cordn.coordinator.desktop /app/share/applications/com.toddsmith456.cordn.coordinator.desktop
       - install -Dm644 packaging/desktop/com.toddsmith456.cordn.coordinator.metainfo.xml /app/share/metainfo/com.toddsmith456.cordn.coordinator.metainfo.xml

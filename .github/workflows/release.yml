@@ -404,7 +404,7 @@ jobs:
               curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
               export PATH="/root/.cargo/bin:$PATH"
               export RUSTFLAGS="-C target-feature=-crt-static"
-              cargo build --release --manifest-path apps/cordn-coordinator/src-tauri/Cargo.toml --features tauri/custom-protocol
+              cargo build --release --locked --manifest-path apps/cordn-coordinator/src-tauri/Cargo.toml --features tauri/custom-protocol
               mkdir -p dist-gui
               cp apps/cordn-coordinator/src-tauri/target/release/cordn-coordinator dist-gui/cordn-coordinator
               strip dist-gui/cordn-coordinator || true
