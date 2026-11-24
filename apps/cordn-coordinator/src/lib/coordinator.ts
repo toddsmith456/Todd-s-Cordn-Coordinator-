@@ -106,5 +106,5 @@ export type PublishRelayListResult = {
 };
 
 export function publishRelayList(): Promise<PublishRelayListResult> {
-    return invoke(`${plugin}|publish_relay_list`, { payload: {} });
+    return invoke(`${plugin}|publish_relay_list`);
 }

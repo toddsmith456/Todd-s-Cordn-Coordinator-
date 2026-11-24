@@ -2,8 +2,7 @@ use tauri::{command, AppHandle, Runtime};
 
 use crate::{
     ConfigResponse, CordnAndroidServiceExt, EncodePubkeyRequest, PubkeyDisplay,
-    PublishRelayListPayload, PublishRelayListResponse, Result, ServiceDiagnostics, ServiceStatus,
-    StartRequest,
+    PublishRelayListResponse, Result, ServiceDiagnostics, ServiceStatus, StartRequest,
 };
 
 #[command]
@@ -71,7 +70,6 @@ pub(crate) fn restart_schedule<R: Runtime>(
 #[command]
 pub(crate) fn publish_relay_list<R: Runtime>(
     app: AppHandle<R>,
-    payload: PublishRelayListPayload,
 ) -> Result<PublishRelayListResponse> {
-    app.cordn_android_service().publish_relay_list(payload)
+    app.cordn_android_service().publish_relay_list()
 }

@@ -18,7 +18,7 @@ use tauri::{plugin::PluginApi, AppHandle, Manager, Runtime};
 use tokio::sync::oneshot;
 
 use crate::{
-    ConfigResponse, CoordinatorConfig, EncodePubkeyRequest, PubkeyDisplay, PublishRelayListPayload,
+    ConfigResponse, CoordinatorConfig, EncodePubkeyRequest, PubkeyDisplay,
     PublishRelayListResponse, ServiceDiagnostics, ServiceStatus, StartRequest,
 };
 
@@ -286,16 +286,13 @@ impl<R: Runtime> CordnAndroidService<R> {
         Ok(())
     }
 
-    pub fn publish_relay_list(
-        &self,
-        _payload: PublishRelayListPayload,
-    ) -> crate::Result<PublishRelayListResponse> {
+    pub fn publish_relay_list(&self) -> crate::Result<PublishRelayListResponse> {
         // Desktop: read identity from the local file and publish via nostr-sdk.
         let private_key = get_or_create_identity(&self.inner.data_dir, None)?;
         let config = read_json::<CoordinatorConfig>(&self.inner.data_dir.join("cordn-config.json"))
             .unwrap_or_default();
         let relay_urls = if config.relay_urls.is_empty() {
-            _payload.relay_urls
+            crate::CoordinatorConfig::default().relay_urls
         } else {
             config.relay_urls
         };
@@ -401,12 +398,6 @@ impl<R: Runtime> CordnAndroidService<R> {
         }))
     }
 
-    pub fn publish_relay_list(
-        &self,
-        _payload: PublishRelayListPayload,
-    ) -> crate::Result<PublishRelayListResponse> {
-        Err(crate::Error::Unsupported)
-    }
 }
 
 fn spawn_worker(inner: Arc<Inner>, config: CoordinatorConfig, private_key_hex: String) {

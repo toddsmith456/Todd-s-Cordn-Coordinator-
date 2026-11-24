@@ -117,10 +117,7 @@ impl<R: Runtime> CordnAndroidService<R> {
 
     // The private key is encrypted in Android KeyStore — Kotlin decrypts it
     // and returns it alongside the config. Rust then does the Nostr publishing.
-    pub fn publish_relay_list(
-        &self,
-        _payload: PublishRelayListPayload,
-    ) -> crate::Result<PublishRelayListResponse> {
+    pub fn publish_relay_list(&self) -> crate::Result<PublishRelayListResponse> {
         #[derive(serde::Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct KotlinResponse {
