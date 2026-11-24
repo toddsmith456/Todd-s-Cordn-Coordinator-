@@ -12,4 +12,5 @@ permissions = [
   "allow-reset-identity",
   "allow-request-battery-exemption",
   "allow-request-notification-permission",
+  "allow-publish-relay-list",
 ]
