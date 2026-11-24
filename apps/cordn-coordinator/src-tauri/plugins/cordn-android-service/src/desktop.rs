@@ -306,12 +306,12 @@ impl<R: Runtime> CordnAndroidService<R> {
             .map_err(|e| e.to_string())?;
         let (sent, failed, targets) = rt.block_on(async {
             use nostr_sdk::prelude::*;
-            let fallbacks = [
-                "wss://purplepag.es",
-                "wss://relay.damus.io",
-                "wss://relay.primal.net",
-                "wss://nos.lol",
-                "wss://relay.nostr.net",
+            let fallbacks: Vec<String> = vec![
+                "wss://purplepag.es".into(),
+                "wss://relay.damus.io".into(),
+                "wss://relay.primal.net".into(),
+                "wss://nos.lol".into(),
+                "wss://relay.nostr.net".into(),
             ];
             let mut all_targets: Vec<String> = relay_urls
                 .iter()

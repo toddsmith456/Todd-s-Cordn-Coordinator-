@@ -255,12 +255,12 @@ pub(crate) fn publish_relay_list(req: PublishRelayListRequest) -> crate::Result<
         return Err(crate::Error::InvalidConfig("at least one relay URL is required".into()));
     }
 
-    let fallbacks = [
-        "wss://purplepag.es",
-        "wss://relay.damus.io",
-        "wss://relay.primal.net",
-        "wss://nos.lol",
-        "wss://relay.nostr.net",
+    let fallbacks: Vec<String> = vec![
+        "wss://purplepag.es".into(),
+        "wss://relay.damus.io".into(),
+        "wss://relay.primal.net".into(),
+        "wss://nos.lol".into(),
+        "wss://relay.nostr.net".into(),
     ];
 
     let mut all_targets: Vec<String> = req
