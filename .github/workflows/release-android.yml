@@ -23,7 +23,6 @@ jobs:
         include:
           - { target: aarch64, rust: aarch64-linux-android, abi: arm64 }
           - { target: armv7, rust: armv7-linux-androideabi, abi: armv7 }
-          - { target: x86_64, rust: x86_64-linux-android, abi: x86_64 }
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -159,7 +158,6 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-          pattern: cordn-coordinator-android-*
           merge-multiple: true
       - name: Publish APKs and checksums
         env:

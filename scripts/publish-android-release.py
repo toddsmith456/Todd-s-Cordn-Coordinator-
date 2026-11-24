@@ -15,8 +15,15 @@ def request(url, data=None, content_type='application/json'):
         print('::error::GitHub release API HTTP ' + str(e.code) + ': ' + message.replace('\n', ' ').replace('\r', ' '))
         raise SystemExit(1)
 folder = Path('artifacts')
-apks = sorted(folder.glob('*.apk'))
+apks = sorted(folder.rglob('*.apk'))
+print('Found APKs:')
+for apk in apks:
+    print(f'  {apk} ({apk.stat().st_size} bytes)')
 if not apks:
+    # Debug: show what's actually in the artifacts directory
+    print('Contents of artifacts directory:')
+    for p in sorted(folder.rglob('*')):
+        print(f'  {p}')
     raise SystemExit('No verified APKs found')
 checksums = ''.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.name + '\n' for p in apks)
 (folder / 'SHA256SUMS').write_text(checksums)
