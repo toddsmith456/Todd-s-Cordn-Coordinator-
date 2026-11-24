@@ -1,0 +1,7 @@
+/target
+__pycache__/
+*.py[cod]
+
+# C test binary + debug bundle built by c-tests/Makefile
+c-tests/test_ffi
+c-tests/test_ffi.dSYM/

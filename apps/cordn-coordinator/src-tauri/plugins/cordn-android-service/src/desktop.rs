@@ -726,7 +726,9 @@ fn health_label(state: &str, health: Option<&serde_json::Value>) -> String {
             format!("Degraded — subscription rejected ({rejected})")
         };
     }
-    if total > 0 {
+    if total > 0 && connected < total {
+        format!("Partially connected ({connected}/{total}) — delivery unverified")
+    } else if total > 0 {
         format!("Relay connected ({connected}/{total}) — delivery unverified")
     } else {
         "Relay connected — delivery unverified".into()

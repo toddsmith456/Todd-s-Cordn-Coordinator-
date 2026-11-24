@@ -1,6 +1,6 @@
 [package]
 name = "cordn-coordinator-app"
-version = "0.5.9-beta.2"
+version = "0.5.9-beta.3"
 description = "Run a cordn MLS delivery coordinator on Android and Desktop"
 authors = ["Cordn contributors"]
 license = "MIT"

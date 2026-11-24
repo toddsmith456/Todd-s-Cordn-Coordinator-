@@ -330,7 +330,7 @@
 			<p class="eyebrow">CORDN</p>
 			<h1>Coordinator</h1>
 		</div>
-		<div class:running={status.state === 'running' && !statusUnavailable && healthLabel.startsWith('Relay connected')} class="status-dot" title={status.state}></div>
+		<div class:running={status.state === 'running' && !statusUnavailable && (healthLabel.startsWith('Relay connected') || healthLabel.startsWith('Partially connected'))} class="status-dot" title={status.state}></div>
 	</header>
 
 	<section class="status-card" aria-live="polite">

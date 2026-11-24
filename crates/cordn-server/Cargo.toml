@@ -28,14 +28,9 @@ tokio-util = { version = "0.7", features = ["rt"] }
 # into request extensions (`ctx.extensions.get::<ClientPubkey>()`) and the full
 # client-signed request event as `InboundEvent`, and rewrites the rmcp request
 # id to the Nostr event id (`ctx.id`).
-# Pinned to upstream main c501e01 (mirrored on our vendor/contextvm-sdk branch with
-# the contextvm-docs gitlink removed — cargo cannot init that URL-less submodule)
-# for the worker-startup MCP handshake fix: a client `notifications/cancelled`
-# published while the server was offline (relay-stored, replayed on restart)
-# previously hit the fresh rmcp session before `initialize` and killed the
-# coordinator.
-# ponytail: flip back to a released version (>=0.2.3) once published upstream.
-contextvm-sdk = { git = "https://github.com/toddsmith456/Todd-s-Cordn-Coordinator-.git", rev = "a95a543e9555940c0065197b793cb239f321cd2f", optional = true }
+# Vendored locally for R1/R3/R7 relay-resilience hardening on this beta branch.
+# Upstream base: c501e01 (mirrored on vendor/contextvm-sdk branch; contextvm-docs gitlink removed).
+contextvm-sdk = { path = "../../vendor/contextvm-sdk", optional = true }
 rmcp = { version = "1.8", features = ["server", "macros"], optional = true }
 schemars = { version = "1", optional = true }
 anyhow = { version = "1", optional = true }

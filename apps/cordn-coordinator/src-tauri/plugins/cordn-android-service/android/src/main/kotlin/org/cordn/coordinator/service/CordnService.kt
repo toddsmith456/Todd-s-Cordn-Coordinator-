@@ -131,32 +131,39 @@ internal class CordnService : Service() {
                             startWorker(null)
                             Handler(Looper.getMainLooper()).postDelayed({ releaseRestartWakeLock() }, 30_000L)
                         } else if (error != null && !recoveryPolicy.stopped) {
-                            val delayMs = recoveryPolicy.scheduleRetry(android.os.SystemClock.elapsedRealtime())
-                            if (delayMs != null) {
-                                // Only after the native call has returned: no duplicate database writers.
-                                recoveryPending = true
-                                val attempt = recoveryPolicy.attemptCount()
-                                val nextRetryAt = System.currentTimeMillis() + delayMs
-                                writeStatus(
-                                    "starting",
-                                    error = error,
-                                    recoveryAttempt = attempt,
-                                    nextRetryAt = nextRetryAt,
-                                )
-                                notificationText = "Recovering coordinator — attempt $attempt, retrying in ${formatDelay(delayMs)}"
-                                promoteToForeground()
-                                releaseRestartWakeLock()
-                                handler.postDelayed({
-                                    if (recoveryPending && !recoveryPolicy.stopped && !workerRunning.get()) {
-                                        recoveryPending = false
-                                        startWorker(null)
-                                    }
-                                }, delayMs)
-                            } else {
-                                writeStatus("stopped")
+                            if (isFatalCoordinatorError(error)) {
+                                writeStatus("error", error)
                                 releaseRestartWakeLock()
                                 stopForeground(STOP_FOREGROUND_REMOVE)
                                 stopSelf()
+                            } else {
+                                val delayMs = recoveryPolicy.scheduleRetry(android.os.SystemClock.elapsedRealtime())
+                                if (delayMs != null) {
+                                    // Only after the native call has returned: no duplicate database writers.
+                                    recoveryPending = true
+                                    val attempt = recoveryPolicy.attemptCount()
+                                    val nextRetryAt = System.currentTimeMillis() + delayMs
+                                    writeStatus(
+                                        "starting",
+                                        error = error,
+                                        recoveryAttempt = attempt,
+                                        nextRetryAt = nextRetryAt,
+                                    )
+                                    notificationText = "Recovering coordinator — attempt $attempt, retrying in ${formatDelay(delayMs)}"
+                                    promoteToForeground()
+                                    releaseRestartWakeLock()
+                                    handler.postDelayed({
+                                        if (recoveryPending && !recoveryPolicy.stopped && !workerRunning.get()) {
+                                            recoveryPending = false
+                                            startWorker(null)
+                                        }
+                                    }, delayMs)
+                                } else {
+                                    writeStatus("stopped")
+                                    releaseRestartWakeLock()
+                                    stopForeground(STOP_FOREGROUND_REMOVE)
+                                    stopSelf()
+                                }
                             }
                         } else {
                             if (error != null) writeStatus("error", error) else writeStatus("stopped")
@@ -186,6 +193,19 @@ internal class CordnService : Service() {
         return if (minutes <= 0) "${seconds}s"
         else if (seconds == 0L) "${minutes}m"
         else "${minutes}m ${seconds}s"
+    }
+
+    private fun isFatalCoordinatorError(error: String): Boolean {
+        val lower = error.lowercase()
+        return listOf(
+            "private key is not a valid nostr secret key",
+            "private key must be 64 hex characters",
+            "invalid private key",
+            "server name is required",
+            "at least one relay is required",
+            "relay url must use ws:// or wss://",
+            "invalid relay url",
+        ).any { lower.contains(it) }
     }
 
     private fun scheduleHealthyReset() {

@@ -1,9 +1,10 @@
-## Private beta: R2 + R6 relay resilience/diagnostics
+## Private beta: R1 + R3 + R7 relay resilience hardening
 
-- **R2 (recovery backoff):** Replaced the 3-attempts-per-hour recovery budget with exponential backoff (60s, 2m, 5m, 10m, 15m, 30m, 60m cap). The coordinator no longer gives up permanently after transient transport failures; it keeps retrying with capped backoff. Recovery streak resets after 5 minutes of healthy runtime or on manual start.
-- **R6 (diagnostics):** Status now surfaces recovery attempt count, next retry time, and last fatal reason. Health label shows relay counts/rejected subscriptions, and the UI displays recovery state and relay health details.
-- Includes prior beta fix: `publish_relay_list` no longer requires frontend private key payload.
+- **R1 (defense in depth):** Coordinator service distinguishes fatal config/identity errors from transient transport failures. Transient failures keep the foreground service alive in a degraded reconnecting state with capped exponential backoff (from R2), instead of giving up.
+- **R3 (multi-relay health gating):** Health labels now distinguish partial connectivity (`Partially connected (x/total)`) from full connectivity and from total relay loss. UI status dot/gating treats partial connectivity as running-with-warning; relay counts/rejected subscriptions/repairs remain visible.
+- **R7 (vendored SDK patch):** Patched vendored `contextvm-sdk` server event loop to re-acquire relay notifications on broadcast channel closure instead of exiting fatally. This reduces "whole service quits" risk from recoverable notification-channel/pool churn.
+- Includes prior beta fixes: publish relay list payload fix, R2 backoff, R6 diagnostics.
 
-**Beta build** — intended for testing relay-outage recovery and diagnostics. Install over the existing Todd fork; do not uninstall or clear app data unless you intend to reset.
+**Beta build** — intended for testing relay-outage recovery, partial relay loss, and service resilience. Install over the existing Todd fork; do not uninstall or clear app data unless you intend to reset.
 
 Signing-certificate SHA-256: `80f84f7d629664ebeca758e31b8a1e712c10d89f6efebec4dca2bb37ef0997d2`.

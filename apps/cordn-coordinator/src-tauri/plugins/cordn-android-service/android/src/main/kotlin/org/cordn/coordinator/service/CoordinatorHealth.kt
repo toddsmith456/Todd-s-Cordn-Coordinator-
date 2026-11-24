@@ -37,7 +37,8 @@ internal object CoordinatorHealth {
             return if (total > 0) "Degraded — subscription rejected ($rejected, $connected/$total connected)"
             else "Degraded — subscription rejected ($rejected)"
         }
-        return if (total > 0) "Relay connected ($connected/$total) — delivery unverified"
+        return if (total > 0 && connected < total) "Partially connected ($connected/$total) — delivery unverified"
+        else if (total > 0) "Relay connected ($connected/$total) — delivery unverified"
         else "Relay connected — delivery unverified"
     }
 }
