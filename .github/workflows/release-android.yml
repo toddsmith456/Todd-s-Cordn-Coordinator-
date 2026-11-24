@@ -114,9 +114,11 @@ jobs:
           from pathlib import Path
           log = Path(os.environ["RUNNER_TEMP"]) / "android-build.log"
           if log.exists():
-              for line in log.read_text(errors="replace").splitlines()[-60:]:
-                  escaped = line.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-                  print("::error title=Android build diagnostic::" + escaped)
+              for line in log.read_text(errors="replace").splitlines():
+                  low = line.lower()
+                  if "error" in low or "failed" in low:
+                      escaped = line.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+                      print("::error title=Android build diagnostic::" + escaped)
 
       - name: Verify and package APK
         working-directory: apps/cordn-coordinator
