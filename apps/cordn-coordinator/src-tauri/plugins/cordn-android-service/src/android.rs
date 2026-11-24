@@ -276,11 +276,11 @@ pub(crate) fn publish_relay_list(req: PublishRelayListRequest) -> crate::Result<
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| crate::Error::InvalidConfig(format!("tokio runtime: {e}")))?;
 
     rt.block_on(async {
         let secret_key = SecretKey::from_hex(&req.private_key_hex)
-            .map_err(|e| format!("invalid private key: {e}"))?;
+            .map_err(|e| crate::Error::InvalidConfig(format!("invalid private key: {e}")))?;
         let keys = Keys::new(secret_key);
         let client = nostr_sdk::Client::new(keys);
 
