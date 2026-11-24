@@ -69,6 +69,10 @@ pub struct ServiceStatus {
     pub state: String,
     pub public_key: Option<String>,
     pub last_error: Option<String>,
+    #[serde(default)]
+    pub recovery_attempt: Option<u64>,
+    #[serde(default)]
+    pub next_retry_at: Option<u64>,
     pub battery_exempt: bool,
 }
 
@@ -80,6 +84,8 @@ impl Default for ServiceStatus {
             state: "stopped".into(),
             public_key: None,
             last_error: None,
+            recovery_attempt: None,
+            next_retry_at: None,
             battery_exempt: false,
         }
     }

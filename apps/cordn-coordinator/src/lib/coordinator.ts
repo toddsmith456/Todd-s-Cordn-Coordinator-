@@ -27,6 +27,8 @@ export type ServiceStatus = {
 	state: 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
 	publicKey?: string;
 	lastError?: string;
+	recoveryAttempt?: number;
+	nextRetryAt?: number;
 	batteryExempt: boolean;
 };
 

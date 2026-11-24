@@ -1,8 +1,9 @@
-## Private beta: publish relay list fix
+## Private beta: R2 + R6 relay resilience/diagnostics
 
-- Fixes "Publish Relay List" failing with `invalid args \`payload\` for command \`publish_relay_list\`: missing field \`privateKeyHex\``. The command no longer requires the frontend to send private key material; identity/config are resolved on the native side (Android KeyStore / local identity file).
-- Removes a duplicate desktop `publish_relay_list` method that returned `Unsupported`.
+- **R2 (recovery backoff):** Replaced the 3-attempts-per-hour recovery budget with exponential backoff (60s, 2m, 5m, 10m, 15m, 30m, 60m cap). The coordinator no longer gives up permanently after transient transport failures; it keeps retrying with capped backoff. Recovery streak resets after 5 minutes of healthy runtime or on manual start.
+- **R6 (diagnostics):** Status now surfaces recovery attempt count, next retry time, and last fatal reason. Health label shows relay counts/rejected subscriptions, and the UI displays recovery state and relay health details.
+- Includes prior beta fix: `publish_relay_list` no longer requires frontend private key payload.
 
-**Beta build** — intended for testing the relay-list publish flow. Install over the existing Todd fork; do not uninstall or clear app data unless you intend to reset.
+**Beta build** — intended for testing relay-outage recovery and diagnostics. Install over the existing Todd fork; do not uninstall or clear app data unless you intend to reset.
 
 Signing-certificate SHA-256: `80f84f7d629664ebeca758e31b8a1e712c10d89f6efebec4dca2bb37ef0997d2`.

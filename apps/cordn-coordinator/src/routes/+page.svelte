@@ -403,7 +403,13 @@
 		{/if}
 	</section>
 
-	{#if error || status.lastError}
+	{#if status.recoveryAttempt && status.recoveryAttempt > 0}
+		<p class="recovery" role="status">
+			Recovery attempt {status.recoveryAttempt}{#if status.nextRetryAt}
+				— next retry {new Date(status.nextRetryAt).toLocaleTimeString()}{/if}{#if status.lastError}
+				<br /><span class="recovery-error">Last error: {status.lastError}</span>{/if}
+		</p>
+	{:else if error || status.lastError}
 		<p class="error" role="alert">{error || status.lastError}</p>
 	{/if}
 
@@ -680,6 +686,8 @@
 	.reliability p { margin-top: 2px; color: #a99f73; font-size: .7rem; line-height: 1.35; }
 	.reliability button { flex: 0 0 auto; padding: 7px 10px; background: #f0da76; color: #1c190d; font-size: .7rem; font-weight: 700; }
 	.error { margin-bottom: 12px; padding: 12px 14px; border: 1px solid #6b3034; border-radius: 10px; background: #261315; color: #ffb4b6; font-size: .82rem; overflow-wrap: anywhere; }
+	.recovery { margin-bottom: 12px; padding: 12px 14px; border: 1px solid #5a4a1a; border-radius: 10px; background: #211d12; color: #f0c36a; font-size: .82rem; overflow-wrap: anywhere; }
+	.recovery-error { color: #d9b8a0; font-size: .78rem; }
 	form { margin: 0; }
 	.panel { overflow: hidden; }
 	.panel > summary { display: flex; align-items: center; padding: 16px 18px; cursor: pointer; list-style: none; }

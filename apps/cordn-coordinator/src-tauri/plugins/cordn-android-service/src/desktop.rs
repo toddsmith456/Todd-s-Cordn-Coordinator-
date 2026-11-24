@@ -672,6 +672,8 @@ fn build_status(data_dir: &Path, worker: &WorkerState) -> ServiceStatus {
         state: worker.state.clone(),
         public_key: worker.public_key.clone(),
         last_error: worker.last_error.clone(),
+        recovery_attempt: None,
+        next_retry_at: None,
         // Desktop OSes do not impose Android Doze battery restrictions; suppress the Android banner.
         battery_exempt: true,
     }
@@ -702,17 +704,33 @@ fn health_label(state: &str, health: Option<&serde_json::Value>) -> String {
         .get("connectedRelays")
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
+    let total = h
+        .get("totalRelays")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
     if connected == 0 {
-        return "Waiting for relay connection".into();
+        return if total > 0 {
+            format!("Waiting for relay connection (0/{total})")
+        } else {
+            "Waiting for relay connection".into()
+        };
     }
     let rejected = h
         .get("rejectedSubscriptions")
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
     if rejected > 0 {
-        return "Degraded — subscription rejected".into();
+        return if total > 0 {
+            format!("Degraded — subscription rejected ({rejected}, {connected}/{total} connected)")
+        } else {
+            format!("Degraded — subscription rejected ({rejected})")
+        };
     }
-    "Relay connected — delivery unverified".into()
+    if total > 0 {
+        format!("Relay connected ({connected}/{total}) — delivery unverified")
+    } else {
+        "Relay connected — delivery unverified".into()
+    }
 }
 
 fn validate_schedule(times: &[String]) -> crate::Result<()> {

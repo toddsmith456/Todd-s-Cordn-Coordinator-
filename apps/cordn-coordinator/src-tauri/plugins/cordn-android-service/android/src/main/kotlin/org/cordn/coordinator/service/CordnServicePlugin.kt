@@ -223,8 +223,11 @@ class CordnServicePlugin(private val activity: Activity) : Plugin(activity) {
         for (key in listOf("publicKey", "lastError")) {
             if (stored.has(key) && !stored.isNull(key)) response.put(key, stored.get(key))
         }
+        for (key in listOf("recoveryAttempt", "nextRetryAt")) {
+            if (stored.has(key) && !stored.isNull(key)) response.put(key, stored.get(key))
+        }
         val health = CoordinatorHealth.read(activity.noBackupFilesDir)
-        response.put("healthLabel", CoordinatorHealth.label(state, health))
+        response.put("healthLabel", CoordinatorHealth.label(state, health, stored))
         if (state == "running" && health != null) response.put("health", health)
         response.put("batteryExempt", batteryExempt())
         return response

@@ -32,8 +32,9 @@ internal class CordnService : Service() {
     private val healthTick = object : Runnable {
         override fun run() {
             if (workerRunning.get()) {
-                val state = runCatching { JSONObject(File(noBackupFilesDir, "cordn-status.json").readText()).optString("state") }.getOrDefault("starting")
-                val label = CoordinatorHealth.label(state, CoordinatorHealth.read(noBackupFilesDir))
+                val stored = runCatching { JSONObject(File(noBackupFilesDir, "cordn-status.json").readText()) }.getOrNull()
+                val state = stored?.optString("state", "starting") ?: "starting"
+                val label = CoordinatorHealth.label(state, CoordinatorHealth.read(noBackupFilesDir), stored)
                 if (notificationText != label) { notificationText = label; promoteToForeground() }
             }
             handler.postDelayed(this, 30_000L)
@@ -102,6 +103,7 @@ internal class CordnService : Service() {
 
         recoveryPolicy.stopped = false
         recoveryPending = false
+        recoveryPolicy.reset()
         startWorker(intent)
         return START_STICKY
     }
@@ -128,21 +130,36 @@ internal class CordnService : Service() {
                             restartRequested = false
                             startWorker(null)
                             Handler(Looper.getMainLooper()).postDelayed({ releaseRestartWakeLock() }, 30_000L)
-                        } else if (error != null && !recoveryPolicy.stopped && allowRecovery()) {
-                            // Only after the native call has returned: no duplicate database writers.
-                            recoveryPending = true
-                            writeStatus("starting")
-                            notificationText = "Recovering coordinator — retrying in 60 seconds"
-                            promoteToForeground()
-                            releaseRestartWakeLock()
-                            handler.postDelayed({
-                                if (recoveryPending && !recoveryPolicy.stopped && !workerRunning.get()) {
-                                    recoveryPending = false
-                                    startWorker(null)
-                                }
-                            }, 60_000L)
+                        } else if (error != null && !recoveryPolicy.stopped) {
+                            val delayMs = recoveryPolicy.scheduleRetry(android.os.SystemClock.elapsedRealtime())
+                            if (delayMs != null) {
+                                // Only after the native call has returned: no duplicate database writers.
+                                recoveryPending = true
+                                val attempt = recoveryPolicy.attemptCount()
+                                val nextRetryAt = System.currentTimeMillis() + delayMs
+                                writeStatus(
+                                    "starting",
+                                    error = error,
+                                    recoveryAttempt = attempt,
+                                    nextRetryAt = nextRetryAt,
+                                )
+                                notificationText = "Recovering coordinator — attempt $attempt, retrying in ${formatDelay(delayMs)}"
+                                promoteToForeground()
+                                releaseRestartWakeLock()
+                                handler.postDelayed({
+                                    if (recoveryPending && !recoveryPolicy.stopped && !workerRunning.get()) {
+                                        recoveryPending = false
+                                        startWorker(null)
+                                    }
+                                }, delayMs)
+                            } else {
+                                writeStatus("stopped")
+                                releaseRestartWakeLock()
+                                stopForeground(STOP_FOREGROUND_REMOVE)
+                                stopSelf()
+                            }
                         } else {
-                            if (error != null && !recoveryPolicy.stopped) writeStatus("error", "Coordinator exited; retry budget reached. Start manually to retry.") else writeStatus("stopped")
+                            if (error != null) writeStatus("error", error) else writeStatus("stopped")
                             releaseRestartWakeLock()
                             stopForeground(STOP_FOREGROUND_REMOVE)
                             stopSelf()
@@ -151,6 +168,7 @@ internal class CordnService : Service() {
                 },
                 "cordn-coordinator",
             ).start()
+            scheduleHealthyReset()
         } catch (error: Exception) {
             workerRunning.set(false)
             releaseRestartWakeLock()
@@ -161,7 +179,25 @@ internal class CordnService : Service() {
 
     }
 
-    private fun allowRecovery(): Boolean = recoveryPolicy.allowRecovery(android.os.SystemClock.elapsedRealtime())
+    private fun formatDelay(delayMs: Long): String {
+        val totalSeconds = (delayMs / 1000).coerceAtLeast(1)
+        val minutes = totalSeconds / 60
+        val seconds = totalSeconds % 60
+        return if (minutes <= 0) "${seconds}s"
+        else if (seconds == 0L) "${minutes}m"
+        else "${minutes}m ${seconds}s"
+    }
+
+    private fun scheduleHealthyReset() {
+        handler.removeCallbacks(healthyResetRunnable)
+        handler.postDelayed(healthyResetRunnable, HEALTHY_RESET_MS)
+    }
+
+    private val healthyResetRunnable = Runnable {
+        if (workerRunning.get() && !recoveryPending && !recoveryPolicy.stopped) {
+            recoveryPolicy.reset()
+        }
+    }
 
     private fun releaseRestartWakeLock() {
         restartWakeLock?.let { if (it.isHeld) it.release() }
@@ -247,7 +283,12 @@ internal class CordnService : Service() {
 
     private fun configFile() = File(noBackupFilesDir, "cordn-config.json")
 
-    private fun writeStatus(state: String, error: String? = null) {
+    private fun writeStatus(
+        state: String,
+        error: String? = null,
+        recoveryAttempt: Int = 0,
+        nextRetryAt: Long? = null,
+    ) {
         val statusFile = File(noBackupFilesDir, "cordn-status.json")
         // The coordinator identity outlives run states; keep the last known
         // public key so the UI can still display it while stopped.
@@ -260,7 +301,16 @@ internal class CordnService : Service() {
         if (previous != null && previous.has("publicKey") && !previous.isNull("publicKey")) {
             status.put("publicKey", previous.optString("publicKey"))
         }
-        if (error != null) status.put("lastError", error)
+        // R6: preserve last fatal reason across recovery attempts until a clean stop/reset.
+        val lastError = when {
+            error != null -> error
+            state == "stopped" -> null
+            previous != null && previous.has("lastError") && !previous.isNull("lastError") -> previous.optString("lastError")
+            else -> null
+        }
+        if (lastError != null) status.put("lastError", lastError)
+        if (recoveryAttempt > 0) status.put("recoveryAttempt", recoveryAttempt)
+        if (nextRetryAt != null) status.put("nextRetryAt", nextRetryAt)
         val file = AtomicFile(statusFile)
         val output = file.startWrite()
         try {
@@ -278,5 +328,6 @@ internal class CordnService : Service() {
         const val EXTRA_PRIVATE_KEY = "privateKey"
         private const val CHANNEL_ID = "cordn-coordinator"
         private const val NOTIFICATION_ID = 4101
+        private const val HEALTHY_RESET_MS = 300_000L
     }
 }
