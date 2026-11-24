@@ -25,8 +25,6 @@ if not apks:
     for p in sorted(folder.rglob('*')):
         print(f'  {p}')
     raise SystemExit('No verified APKs found')
-checksums = ''.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.name + '\n' for p in apks)
-(folder / 'SHA256SUMS').write_text(checksums)
 releases = request(api + '/releases')
 release = next((r for r in releases if r['tag_name'] == tag), None)
 if release is None:
@@ -38,9 +36,9 @@ if release is None:
         'prerelease': '-' in tag.removeprefix('android-v'),
     }).encode())
 uploaded = {a['name'] for a in release.get('assets', [])}
-for path in apks + [folder / 'SHA256SUMS']:
+for path in apks:
     if path.name in uploaded:
         continue
     upload = release['upload_url'].split('{')[0] + '?name=' + urllib.parse.quote(path.name)
-    request(upload, path.read_bytes(), 'application/vnd.android.package-archive' if path.suffix == '.apk' else 'text/plain')
+    request(upload, path.read_bytes(), 'application/vnd.android.package-archive')
 print('Published:', release['html_url'])
