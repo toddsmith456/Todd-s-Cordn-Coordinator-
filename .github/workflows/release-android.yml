@@ -115,8 +115,7 @@ jobs:
           log = Path(os.environ["RUNNER_TEMP"]) / "android-build.log"
           if log.exists():
               for line in log.read_text(errors="replace").splitlines():
-                  low = line.lower()
-                  if "error" in low or "failed" in low:
+                  if line.strip().startswith("error") or "error[" in line or "failed:" in line.lower() or "aborting" in line.lower():
                       escaped = line.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
                       print("::error title=Android build diagnostic::" + escaped)
 
