@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-publish-relay-list"
+description = "Enables the publish_relay_list command without any pre-configured scope."
+commands.allow = ["publish_relay_list"]
+
+[[permission]]
+identifier = "deny-publish-relay-list"
+description = "Denies the publish_relay_list command without any pre-configured scope."
+commands.deny = ["publish_relay_list"]
