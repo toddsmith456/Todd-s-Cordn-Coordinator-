@@ -19,6 +19,7 @@ url = "2"
 cordn-core = { path = "../../../../../crates/cordn-core" }
 cordn-server = { path = "../../../../../crates/cordn-server", features = ["server"] }
 jni = "0.21"
+nostr-sdk = { version = "0.44", features = ["nip59"] }
 tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
 tracing-subscriber = "0.3"
 
@@ -27,6 +28,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 cordn-core = { path = "../../../../../crates/cordn-core" }
 cordn-server = { path = "../../../../../crates/cordn-server", features = ["server"] }
 nostr = { version = "0.44", default-features = false }
+nostr-sdk = { version = "0.44", features = ["nip59"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 tracing-subscriber = "0.3"
