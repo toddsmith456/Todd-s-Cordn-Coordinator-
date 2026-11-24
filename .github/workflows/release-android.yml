@@ -159,6 +159,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+          pattern: cordn-coordinator-android-*
           merge-multiple: true
       - name: Publish APKs and checksums
         env:
