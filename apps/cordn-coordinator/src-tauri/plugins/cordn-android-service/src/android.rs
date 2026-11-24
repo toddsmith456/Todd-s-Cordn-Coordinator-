@@ -237,6 +237,89 @@ fn non_empty(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+pub(crate) struct PublishRelayListRequest {
+    pub private_key_hex: String,
+    pub relay_urls: Vec<String>,
+}
+
+pub(crate) struct PublishRelayListResult {
+    pub sent: usize,
+    pub failed: usize,
+    pub targets: Vec<String>,
+}
+
+pub(crate) fn publish_relay_list(req: PublishRelayListRequest) -> crate::Result<PublishRelayListResult> {
+    use nostr_sdk::prelude::*;
+
+    if req.relay_urls.is_empty() {
+        return Err(crate::Error::InvalidConfig("at least one relay URL is required".into()));
+    }
+
+    let fallbacks = [
+        "wss://purplepag.es",
+        "wss://relay.damus.io",
+        "wss://relay.primal.net",
+        "wss://nos.lol",
+        "wss://relay.nostr.net",
+    ];
+
+    let mut all_targets: Vec<String> = req
+        .relay_urls
+        .iter()
+        .chain(fallbacks.iter())
+        .map(|u| u.trim().trim_end_matches('/').to_owned())
+        .filter(|u| !u.is_empty())
+        .collect();
+    all_targets.sort();
+    all_targets.dedup();
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    rt.block_on(async {
+        let secret_key = SecretKey::from_hex(&req.private_key_hex)
+            .map_err(|e| format!("invalid private key: {e}"))?;
+        let keys = Keys::new(secret_key);
+        let client = nostr_sdk::Client::new(keys);
+
+        for url in &all_targets {
+            let _ = client.add_relay(url.as_str()).await;
+        }
+        client.connect().await;
+        client.wait_for_connection(std::time::Duration::from_secs(10)).await;
+
+        let tags: Vec<Tag> = req
+            .relay_urls
+            .iter()
+            .filter_map(|url| {
+                let trimmed = url.trim().trim_end_matches('/');
+                Tag::parse(["r", trimmed]).ok()
+            })
+            .collect();
+
+        let builder = EventBuilder::new(Kind::Custom(10002), "").tags(tags);
+        let result = client.send_event_builder_to(all_targets.clone(), builder).await;
+
+        match result {
+            Ok(output) => {
+                let failed_urls: std::collections::HashSet<String> = output
+                    .failed
+                    .keys()
+                    .map(|url| url.to_string().trim_end_matches('/').to_owned())
+                    .collect();
+                let sent = all_targets.iter().filter(|t| !failed_urls.contains(t.as_str())).count();
+                let failed = failed_urls.len();
+                Ok(PublishRelayListResult { sent, failed, targets: all_targets })
+            }
+            Err(error) => {
+                Err(crate::Error::InvalidConfig(format!("publish failed: {error}")))
+            }
+        }
+    })
+}
+
 fn write_status(path: &Path, status: &ServiceStatus) -> Result<(), String> {
     let parent = path
         .parent()

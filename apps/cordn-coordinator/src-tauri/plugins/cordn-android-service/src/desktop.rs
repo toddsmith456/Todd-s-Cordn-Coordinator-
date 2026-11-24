@@ -18,8 +18,8 @@ use tauri::{plugin::PluginApi, AppHandle, Manager, Runtime};
 use tokio::sync::oneshot;
 
 use crate::{
-    ConfigResponse, CoordinatorConfig, EncodePubkeyRequest, PubkeyDisplay, ServiceDiagnostics,
-    ServiceStatus, StartRequest,
+    ConfigResponse, CoordinatorConfig, EncodePubkeyRequest, PubkeyDisplay, PublishRelayListPayload,
+    PublishRelayListResponse, ServiceDiagnostics, ServiceStatus, StartRequest,
 };
 
 const MAX_LOG_BYTES: u64 = 64 * 1024;
@@ -167,6 +167,13 @@ impl<R: Runtime> CordnAndroidService<R> {
         Ok(build_status(&self.inner.data_dir, &guard))
     }
 
+    pub fn restart_schedule(
+        &self,
+        _payload: serde_json::Value,
+    ) -> crate::Result<serde_json::Value> {
+        Err(crate::Error::Unsupported)
+    }
+
     pub fn stop(&self) -> crate::Result<ServiceStatus> {
         let mut guard = self.inner.worker.lock().unwrap();
         guard.manually_stopped = true;
@@ -279,6 +286,74 @@ impl<R: Runtime> CordnAndroidService<R> {
         Ok(())
     }
 
+    pub fn publish_relay_list(
+        &self,
+        _payload: PublishRelayListPayload,
+    ) -> crate::Result<PublishRelayListResponse> {
+        // Desktop: read identity from the local file and publish via nostr-sdk.
+        let private_key = get_or_create_identity(&self.inner.data_dir, None)?;
+        let config = read_json::<CoordinatorConfig>(&self.inner.data_dir.join("cordn-config.json"))
+            .unwrap_or_default();
+        let relay_urls = if config.relay_urls.is_empty() {
+            _payload.relay_urls
+        } else {
+            config.relay_urls
+        };
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| e.to_string())?;
+        let (sent, failed, targets) = rt.block_on(async {
+            use nostr_sdk::prelude::*;
+            let fallbacks = [
+                "wss://purplepag.es",
+                "wss://relay.damus.io",
+                "wss://relay.primal.net",
+                "wss://nos.lol",
+                "wss://relay.nostr.net",
+            ];
+            let mut all_targets: Vec<String> = relay_urls
+                .iter()
+                .chain(fallbacks.iter())
+                .map(|u| u.trim().trim_end_matches('/').to_owned())
+                .filter(|u| !u.is_empty())
+                .collect();
+            all_targets.sort();
+            all_targets.dedup();
+
+            let secret_key = SecretKey::from_hex(&private_key)
+                .map_err(|e| format!("invalid private key: {e}"))?;
+            let keys = Keys::new(secret_key);
+            let client = nostr_sdk::Client::new(keys);
+            for url in &all_targets {
+                let _ = client.add_relay(url.as_str()).await;
+            }
+            client.connect().await;
+            client.wait_for_connection(std::time::Duration::from_secs(10)).await;
+
+            let tags: Vec<Tag> = relay_urls
+                .iter()
+                .filter_map(|url| {
+                    let trimmed = url.trim().trim_end_matches('/');
+                    Tag::parse(["r", trimmed]).ok()
+                })
+                .collect();
+            let builder = EventBuilder::new(Kind::Custom(10002), "").tags(tags);
+            let output = client.send_event_builder_to(all_targets.clone(), builder).await
+                .map_err(|e| format!("publish failed: {e}"))?;
+            let failed_set: std::collections::HashSet<String> = output
+                .failed
+                .keys()
+                .map(|url| url.to_string().trim_end_matches('/').to_owned())
+                .collect();
+            let sent = all_targets.iter().filter(|t| !failed_set.contains(t.as_str())).count();
+            Ok::<_, String>((sent, failed_set.len(), all_targets))
+        }).map_err(|e: String| crate::Error::InvalidConfig(e))?;
+
+        Ok(PublishRelayListResponse { sent, failed, targets })
+    }
+
     pub fn restart_schedule(&self, payload: serde_json::Value) -> crate::Result<serde_json::Value> {
         let cmd: ScheduleCommand = serde_json::from_value(payload).unwrap_or(ScheduleCommand {
             operation: "get".into(),
@@ -324,6 +399,13 @@ impl<R: Runtime> CordnAndroidService<R> {
             "exactAlarmAllowed": true,
             "nextAlarm": next_alarm,
         }))
+    }
+
+    pub fn publish_relay_list(
+        &self,
+        _payload: PublishRelayListPayload,
+    ) -> crate::Result<PublishRelayListResponse> {
+        Err(crate::Error::Unsupported)
     }
 }
 

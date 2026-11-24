@@ -9,6 +9,7 @@
 		getConfig,
 		getDiagnostics,
 		getStatus,
+		publishRelayList,
 		restartSchedule,
 		type RestartSchedule,
 		requestBatteryExemption,
@@ -17,6 +18,7 @@
 		start,
 		stop,
 		type PubkeyDisplay,
+		type PublishRelayListResult,
 		type ServiceDiagnostics,
 		type ServiceStatus
 	} from '$lib/coordinator';
@@ -73,6 +75,9 @@
 	let dangerConfirm = $state<'' | 'flush' | 'reset'>('');
 	let dangerTimer = 0;
 	let statusUnavailable = $state(false);
+	let publishRelayBusy = $state(false);
+	let publishRelayResult = $state<PublishRelayListResult | null>(null);
+	let publishRelayError = $state('');
     let healthLabel = $derived(statusUnavailable ? 'Status unavailable — check connection to service' : status.healthLabel ?? status.state);
 	let active = $derived(['starting', 'running', 'stopping'].includes(status.state));
 	const relaysList = $derived(
@@ -271,6 +276,19 @@
 		}
 	}
 
+	async function doPublishRelayList() {
+		publishRelayBusy = true;
+		publishRelayError = '';
+		publishRelayResult = null;
+		try {
+			publishRelayResult = await publishRelayList();
+		} catch (cause) {
+			publishRelayError = message(cause);
+		} finally {
+			publishRelayBusy = false;
+		}
+	}
+
 	function formatBytes(bytes: number): string {
 		if (bytes < 1024) return `${bytes} B`;
 		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -447,6 +465,33 @@
 				</div>
 			{:else}
 				<p class="loading">Start the coordinator once to create its identity.</p>
+			{/if}
+			{#if status.publicKey}
+				<div class="publish-relay-section">
+					<div>
+						<strong>Publish relay list</strong>
+						<small>Announce your coordinator's relays as a kind 10002 event so clients can discover and connect to it automatically.</small>
+					</div>
+					<button
+						type="button"
+						class="publish-relay-btn"
+						onclick={doPublishRelayList}
+						disabled={publishRelayBusy}
+					>
+						{publishRelayBusy ? 'Publishing…' : 'Publish'}
+					</button>
+				</div>
+				{#if publishRelayResult}
+					<p class="publish-relay-success">
+						Published to {publishRelayResult.sent} relay{publishRelayResult.sent !== 1 ? 's' : ''}
+						{#if publishRelayResult.failed > 0}
+							({publishRelayResult.failed} failed)
+						{/if}
+					</p>
+				{/if}
+				{#if publishRelayError}
+					<p class="inline-error" role="alert">{publishRelayError}</p>
+				{/if}
 			{/if}
 		</div>
 	</details>
@@ -676,5 +721,10 @@
 	.danger-row strong { font-size: .8rem; }
 	.danger-row small { display: block; margin-top: 2px; color: #a4757a; font-size: .68rem; line-height: 1.35; }
 	.danger-row .danger { flex: 0 0 auto; padding: 8px 12px; background: #5c2125; color: #ffb4b6; font-size: .72rem; font-weight: 700; }
+	.publish-relay-section { display: flex; gap: 12px; align-items: center; margin-top: 16px; padding: 12px; border: 1px solid #2a3930; border-radius: 11px; background: #0a0e0c; }
+	.publish-relay-section strong { color: #d9e5dd; font-size: .82rem; }
+	.publish-relay-section small { display: block; margin-top: 2px; color: #68796e; font-size: .7rem; line-height: 1.35; }
+	.publish-relay-btn { flex: 0 0 auto; padding: 8px 14px; background: #70e49b; color: #07140c; font-size: .75rem; font-weight: 700; }
+	.publish-relay-success { margin-top: 8px; color: #70e49b; font-size: .75rem; }
 	@media (max-width: 390px) { .row { grid-template-columns: 1fr; } .reliability { align-items: flex-start; flex-direction: column; } }
 </style>

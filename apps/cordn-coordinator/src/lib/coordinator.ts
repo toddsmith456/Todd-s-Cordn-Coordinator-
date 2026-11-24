@@ -99,3 +99,12 @@ export type RestartSchedule = {
 export function restartSchedule(operation: 'get' | 'save' | 'permission' = 'get', enabled = false, times = ['03:00']): Promise<RestartSchedule> {
     return invoke(`${plugin}|restart_schedule`, { payload: { operation, enabled, times } });
 }
+export type PublishRelayListResult = {
+    sent: number;
+    failed: number;
+    targets: string[];
+};
+
+export function publishRelayList(): Promise<PublishRelayListResult> {
+    return invoke(`${plugin}|publish_relay_list`, { payload: {} });
+}

@@ -1,8 +1,9 @@
 use tauri::{command, AppHandle, Runtime};
 
 use crate::{
-    ConfigResponse, CordnAndroidServiceExt, EncodePubkeyRequest, PubkeyDisplay, Result,
-    ServiceDiagnostics, ServiceStatus, StartRequest,
+    ConfigResponse, CordnAndroidServiceExt, EncodePubkeyRequest, PubkeyDisplay,
+    PublishRelayListPayload, PublishRelayListResponse, Result, ServiceDiagnostics, ServiceStatus,
+    StartRequest,
 };
 
 #[command]
@@ -65,4 +66,12 @@ pub(crate) fn restart_schedule<R: Runtime>(
     payload: serde_json::Value,
 ) -> Result<serde_json::Value> {
     app.cordn_android_service().restart_schedule(payload)
+}
+
+#[command]
+pub(crate) fn publish_relay_list<R: Runtime>(
+    app: AppHandle<R>,
+    payload: PublishRelayListPayload,
+) -> Result<PublishRelayListResponse> {
+    app.cordn_android_service().publish_relay_list(payload)
 }

@@ -5,8 +5,8 @@ use tauri::{
 };
 
 use crate::{
-    ConfigResponse, EncodePubkeyRequest, PubkeyDisplay, ServiceDiagnostics, ServiceStatus,
-    StartRequest,
+    ConfigResponse, EncodePubkeyRequest, PubkeyDisplay, PublishRelayListPayload,
+    PublishRelayListResponse, ServiceDiagnostics, ServiceStatus, StartRequest,
 };
 
 #[derive(Serialize)]
@@ -113,5 +113,32 @@ impl<R: Runtime> CordnAndroidService<R> {
             )
             .map(|_| ())
             .map_err(Into::into)
+    }
+
+    // The private key is encrypted in Android KeyStore — Kotlin decrypts it
+    // and returns it alongside the config. Rust then does the Nostr publishing.
+    pub fn publish_relay_list(
+        &self,
+        _payload: PublishRelayListPayload,
+    ) -> crate::Result<PublishRelayListResponse> {
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct KotlinResponse {
+            private_key_hex: String,
+            relay_urls: Vec<String>,
+        }
+        let response: KotlinResponse = self
+            .0
+            .run_mobile_plugin("publishRelayList", serde_json::json!({}))?;
+
+        let result = crate::android::publish_relay_list(crate::android::PublishRelayListRequest {
+            private_key_hex: response.private_key_hex,
+            relay_urls: response.relay_urls,
+        })?;
+        Ok(PublishRelayListResponse {
+            sent: result.sent,
+            failed: result.failed,
+            targets: result.targets,
+        })
     }
 }

@@ -117,6 +117,21 @@ pub struct ConfigResponse {
     pub config: Option<CoordinatorConfig>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublishRelayListPayload {
+    pub private_key_hex: String,
+    pub relay_urls: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublishRelayListResponse {
+    pub sent: usize,
+    pub failed: usize,
+    pub targets: Vec<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

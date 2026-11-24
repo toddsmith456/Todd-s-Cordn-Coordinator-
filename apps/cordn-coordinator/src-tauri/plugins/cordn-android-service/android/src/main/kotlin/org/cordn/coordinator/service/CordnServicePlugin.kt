@@ -175,6 +175,36 @@ class CordnServicePlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve(status())
     }
 
+    @Command
+    fun publishRelayList(invoke: Invoke) {
+        try {
+            val privateKeyHex = IdentityStore(activity).getOrCreate(null)
+            val configFile = File(activity.noBackupFilesDir, "cordn-config.json")
+            val relayUrls = if (configFile.exists()) {
+                val config = JSONObject(configFile.readText())
+                val urls = config.optJSONArray("relayUrls")
+                if (urls != null) {
+                    (0 until urls.length()).map { urls.getString(it) }
+                } else {
+                    listOf("wss://relay.contextvm.org", "wss://relay.nostr.net")
+                }
+            } else {
+                listOf("wss://relay.contextvm.org", "wss://relay.nostr.net")
+            }
+            if (relayUrls.isEmpty()) {
+                return invoke.reject("No relay URLs configured")
+            }
+            val response = JSObject()
+            response.put("privateKeyHex", privateKeyHex)
+            val urlsArray = org.json.JSONArray()
+            relayUrls.forEach { urlsArray.put(it) }
+            response.put("relayUrls", urlsArray)
+            invoke.resolve(response)
+        } catch (error: Exception) {
+            invoke.reject(error.message ?: error.toString())
+        }
+    }
+
     private fun deleteDatabase() {
         val database = File(activity.noBackupFilesDir, "cordn.sqlite")
         listOf(database, File("${database.path}-wal"), File("${database.path}-shm"))

@@ -50,6 +50,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::reset_identity,
             commands::request_battery_exemption,
             commands::request_notification_permission,
+            commands::publish_relay_list,
         ])
         .setup(|app, api| {
             #[cfg(mobile)]
