@@ -659,7 +659,6 @@ dependencies = [
 [[package]]
 name = "contextvm-sdk"
 version = "0.2.2"
-source = "git+https://github.com/toddsmith456/Todd-s-Cordn-Coordinator-.git?rev=a95a543e9555940c0065197b793cb239f321cd2f#a95a543e9555940c0065197b793cb239f321cd2f"
 dependencies = [
  "async-trait",
  "futures",
@@ -689,7 +688,7 @@ dependencies = [
 
 [[package]]
 name = "cordn-coordinator-app"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "tauri",
  "tauri-build",
@@ -699,7 +698,7 @@ dependencies = [
 
 [[package]]
 name = "cordn-core"
-version = "0.5.6"
+version = "0.5.12"
 dependencies = [
  "indexmap 2.14.0",
  "rusqlite",
@@ -712,7 +711,7 @@ dependencies = [
 
 [[package]]
 name = "cordn-server"
-version = "0.5.6"
+version = "0.5.12"
 dependencies = [
  "anyhow",
  "async-trait",
