@@ -260,9 +260,9 @@ jobs:
           path: out-gui/*
           if-no-files-found: error
 
-  # 32-bit x86 (i386/i686) Desktop GUI .deb built cleanly in Debian Bookworm i386 container
+  # 32-bit x86 (i386/i686) Desktop GUI .deb/.rpm built cleanly in Debian Bookworm i386 container
   gui-linux-i386:
-    name: desktop linux (i386 32-bit deb)
+    name: desktop linux (i386 32-bit deb+rpm)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -298,15 +298,17 @@ jobs:
               strip dist-gui/cordn-coordinator || true
             '
           sudo chown -R "$(id -u):$(id -g)" dist-gui apps/cordn-coordinator/src-tauri/target
-      - name: Package 32-bit i386 Desktop GUI .deb via nFPM
+      - name: Package 32-bit i386 Desktop GUI .deb and .rpm via nFPM
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p out-gui-i386
           curl -fsSL https://github.com/goreleaser/nfpm/releases/download/v2.47.0/nfpm_2.47.0_Linux_x86_64.tar.gz -o /tmp/nfpm.tar.gz
           tar -xzf /tmp/nfpm.tar.gz -C /tmp nfpm
-          NFPM_ARCH="386" NFPM_VERSION="$VERSION" \
-            /tmp/nfpm pkg --config packaging/nfpm-desktop-gui.yaml --packager deb --target out-gui-i386/
+          for fmt in deb rpm; do
+            NFPM_ARCH="386" NFPM_VERSION="$VERSION" \
+              /tmp/nfpm pkg --config packaging/nfpm-desktop-gui.yaml --packager "$fmt" --target out-gui-i386/
+          done
           ls -lh out-gui-i386/
       - uses: actions/upload-artifact@v4
         with:
