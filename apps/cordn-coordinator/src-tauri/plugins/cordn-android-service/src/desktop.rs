@@ -167,12 +167,6 @@ impl<R: Runtime> CordnAndroidService<R> {
         Ok(build_status(&self.inner.data_dir, &guard))
     }
 
-    pub fn restart_schedule(
-        &self,
-        _payload: serde_json::Value,
-    ) -> crate::Result<serde_json::Value> {
-        Err(crate::Error::Unsupported)
-    }
 
     pub fn stop(&self) -> crate::Result<ServiceStatus> {
         let mut guard = self.inner.worker.lock().unwrap();
@@ -300,7 +294,7 @@ impl<R: Runtime> CordnAndroidService<R> {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| crate::Error::InvalidConfig(e.to_string()))?;
         let (sent, failed, targets) = rt.block_on(async {
             use nostr_sdk::prelude::*;
             let fallbacks: Vec<String> = vec![

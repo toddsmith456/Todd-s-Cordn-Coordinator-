@@ -4,7 +4,7 @@ members = ["crates/cordn-core", "crates/cordn-server"]
 exclude = ["references", "apps/cordn-coordinator/src-tauri", "vendor/contextvm-sdk"]
 
 [workspace.package]
-version = "0.5.12"
+version = "0.5.13"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT"

@@ -299,7 +299,7 @@ dependencies = [
 
 [[package]]
 name = "cordn-core"
-version = "0.5.12"
+version = "0.5.13"
 dependencies = [
  "hex",
  "indexmap",
@@ -313,7 +313,7 @@ dependencies = [
 
 [[package]]
 name = "cordn-server"
-version = "0.5.12"
+version = "0.5.13"
 dependencies = [
  "anyhow",
  "async-trait",

@@ -343,6 +343,18 @@
           "markdownDescription": "Denies the flush_data command without any pre-configured scope."
         },
         {
+          "description": "Enables the publish_relay_list command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-publish-relay-list",
+          "markdownDescription": "Enables the publish_relay_list command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the publish_relay_list command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-publish-relay-list",
+          "markdownDescription": "Denies the publish_relay_list command without any pre-configured scope."
+        },
+        {
           "description": "Enables the request_battery_exemption command without any pre-configured scope.",
           "type": "string",
           "const": "allow-request-battery-exemption",
@@ -427,10 +439,10 @@
           "markdownDescription": "Denies the stop command without any pre-configured scope."
         },
         {
-          "description": "Control and inspect the local cordn coordinator service\n#### This default permission set includes:\n\n- `allow-start`\n- `allow-restart-schedule`\n- `allow-stop`\n- `allow-status`\n- `allow-config`\n- `allow-diagnostics`\n- `allow-encode-pubkey`\n- `allow-flush-data`\n- `allow-reset-identity`\n- `allow-request-battery-exemption`\n- `allow-request-notification-permission`",
+          "description": "Control and inspect the local cordn coordinator service\n#### This default permission set includes:\n\n- `allow-start`\n- `allow-restart-schedule`\n- `allow-stop`\n- `allow-status`\n- `allow-config`\n- `allow-diagnostics`\n- `allow-encode-pubkey`\n- `allow-flush-data`\n- `allow-reset-identity`\n- `allow-request-battery-exemption`\n- `allow-request-notification-permission`\n- `allow-publish-relay-list`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Control and inspect the local cordn coordinator service\n#### This default permission set includes:\n\n- `allow-start`\n- `allow-restart-schedule`\n- `allow-stop`\n- `allow-status`\n- `allow-config`\n- `allow-diagnostics`\n- `allow-encode-pubkey`\n- `allow-flush-data`\n- `allow-reset-identity`\n- `allow-request-battery-exemption`\n- `allow-request-notification-permission`"
+          "markdownDescription": "Control and inspect the local cordn coordinator service\n#### This default permission set includes:\n\n- `allow-start`\n- `allow-restart-schedule`\n- `allow-stop`\n- `allow-status`\n- `allow-config`\n- `allow-diagnostics`\n- `allow-encode-pubkey`\n- `allow-flush-data`\n- `allow-reset-identity`\n- `allow-request-battery-exemption`\n- `allow-request-notification-permission`\n- `allow-publish-relay-list`"
         }
       ]
     }

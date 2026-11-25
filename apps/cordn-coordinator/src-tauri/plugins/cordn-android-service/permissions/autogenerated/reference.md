@@ -15,6 +15,7 @@ Control and inspect the local cordn coordinator service
 - `allow-reset-identity`
 - `allow-request-battery-exemption`
 - `allow-request-notification-permission`
+- `allow-publish-relay-list`
 
 ## Permission Table
 
@@ -125,6 +126,32 @@ Enables the flush_data command without any pre-configured scope.
 <td>
 
 Denies the flush_data command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`cordn-android-service:allow-publish-relay-list`
+
+</td>
+<td>
+
+Enables the publish_relay_list command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`cordn-android-service:deny-publish-relay-list`
+
+</td>
+<td>
+
+Denies the publish_relay_list command without any pre-configured scope.
 
 </td>
 </tr>
