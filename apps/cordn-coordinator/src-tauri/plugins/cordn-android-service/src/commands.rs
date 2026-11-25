@@ -68,8 +68,13 @@ pub(crate) fn restart_schedule<R: Runtime>(
 }
 
 #[command]
-pub(crate) fn publish_relay_list<R: Runtime>(
+pub(crate) async fn publish_relay_list<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<PublishRelayListResponse> {
-    app.cordn_android_service().publish_relay_list()
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        app.cordn_android_service().publish_relay_list()
+    })
+    .await
+    .map_err(|e| crate::Error::InvalidConfig(format!("publish task failed: {e}")))?
 }

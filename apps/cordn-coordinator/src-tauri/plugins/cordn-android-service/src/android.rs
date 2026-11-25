@@ -279,43 +279,73 @@ pub(crate) fn publish_relay_list(req: PublishRelayListRequest) -> crate::Result<
         .map_err(|e| crate::Error::InvalidConfig(format!("tokio runtime: {e}")))?;
 
     rt.block_on(async {
-        let secret_key = SecretKey::from_hex(&req.private_key_hex)
-            .map_err(|e| crate::Error::InvalidConfig(format!("invalid private key: {e}")))?;
-        let keys = Keys::new(secret_key);
-        let client = nostr_sdk::Client::new(keys);
+        let publish_future = async {
+            let secret_key = SecretKey::from_hex(&req.private_key_hex)
+                .map_err(|e| crate::Error::InvalidConfig(format!("invalid private key: {e}")))?;
+            let keys = Keys::new(secret_key);
+            let client = nostr_sdk::Client::new(keys);
 
-        for url in &all_targets {
-            let _ = client.add_relay(url.as_str()).await;
-        }
-        client.connect().await;
-        client.wait_for_connection(std::time::Duration::from_secs(10)).await;
-
-        let tags: Vec<Tag> = req
-            .relay_urls
-            .iter()
-            .filter_map(|url| {
-                let trimmed = url.trim().trim_end_matches('/');
-                Tag::parse(["r", trimmed]).ok()
-            })
-            .collect();
-
-        let builder = EventBuilder::new(Kind::Custom(10002), "").tags(tags);
-        let result = client.send_event_builder_to(all_targets.clone(), builder).await;
-
-        match result {
-            Ok(output) => {
-                let failed_urls: std::collections::HashSet<String> = output
-                    .failed
-                    .keys()
-                    .map(|url| url.to_string().trim_end_matches('/').to_owned())
-                    .collect();
-                let sent = all_targets.iter().filter(|t| !failed_urls.contains(t.as_str())).count();
-                let failed = failed_urls.len();
-                Ok(PublishRelayListResult { sent, failed, targets: all_targets })
+            for url in &all_targets {
+                let _ = client.add_relay(url.as_str()).await;
             }
-            Err(error) => {
-                Err(crate::Error::InvalidConfig(format!("publish failed: {error}")))
+            client.connect().await;
+            let connected = client
+                .wait_for_connection(std::time::Duration::from_secs(10))
+                .await;
+            if !connected {
+                client.disconnect().await;
+                return Err(crate::Error::InvalidConfig(
+                    "could not connect to any relay (check network/relay URLs)".into(),
+                ));
             }
+
+            let tags: Vec<Tag> = req
+                .relay_urls
+                .iter()
+                .filter_map(|url| {
+                    let trimmed = url.trim().trim_end_matches('/');
+                    Tag::parse(["r", trimmed]).ok()
+                })
+                .collect();
+
+            let builder = EventBuilder::new(Kind::Custom(10002), "").tags(tags);
+            let result = client
+                .send_event_builder_to(all_targets.clone(), builder)
+                .await;
+            client.disconnect().await;
+
+            match result {
+                Ok(output) => {
+                    let failed_urls: std::collections::HashSet<String> = output
+                        .failed
+                        .keys()
+                        .map(|url| url.to_string().trim_end_matches('/').to_owned())
+                        .collect();
+                    let sent = all_targets
+                        .iter()
+                        .filter(|t| !failed_urls.contains(t.as_str()))
+                        .count();
+                    let failed = failed_urls.len();
+                    if sent == 0 {
+                        return Err(crate::Error::InvalidConfig(
+                            "publish failed: no relay accepted the event".into(),
+                        ));
+                    }
+                    Ok(PublishRelayListResult {
+                        sent,
+                        failed,
+                        targets: all_targets,
+                    })
+                }
+                Err(error) => Err(crate::Error::InvalidConfig(format!("publish failed: {error}"))),
+            }
+        };
+
+        match tokio::time::timeout(std::time::Duration::from_secs(30), publish_future).await {
+            Ok(result) => result,
+            Err(_) => Err(crate::Error::InvalidConfig(
+                "publish timed out after 30s (check network/relay connectivity)".into(),
+            )),
         }
     })
 }

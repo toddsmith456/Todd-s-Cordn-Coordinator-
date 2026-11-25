@@ -319,33 +319,50 @@ impl<R: Runtime> CordnAndroidService<R> {
             all_targets.sort();
             all_targets.dedup();
 
-            let secret_key = SecretKey::from_hex(&private_key)
-                .map_err(|e| format!("invalid private key: {e}"))?;
-            let keys = Keys::new(secret_key);
-            let client = nostr_sdk::Client::new(keys);
-            for url in &all_targets {
-                let _ = client.add_relay(url.as_str()).await;
-            }
-            client.connect().await;
-            client.wait_for_connection(std::time::Duration::from_secs(10)).await;
+            let publish_future = async {
+                let secret_key = SecretKey::from_hex(&private_key)
+                    .map_err(|e| format!("invalid private key: {e}"))?;
+                let keys = Keys::new(secret_key);
+                let client = nostr_sdk::Client::new(keys);
+                for url in &all_targets {
+                    let _ = client.add_relay(url.as_str()).await;
+                }
+                client.connect().await;
+                let connected = client
+                    .wait_for_connection(std::time::Duration::from_secs(10))
+                    .await;
+                if !connected {
+                    client.disconnect().await;
+                    return Err("could not connect to any relay (check network/relay URLs)".to_string());
+                }
 
-            let tags: Vec<Tag> = relay_urls
-                .iter()
-                .filter_map(|url| {
-                    let trimmed = url.trim().trim_end_matches('/');
-                    Tag::parse(["r", trimmed]).ok()
-                })
-                .collect();
-            let builder = EventBuilder::new(Kind::Custom(10002), "").tags(tags);
-            let output = client.send_event_builder_to(all_targets.clone(), builder).await
-                .map_err(|e| format!("publish failed: {e}"))?;
-            let failed_set: std::collections::HashSet<String> = output
-                .failed
-                .keys()
-                .map(|url| url.to_string().trim_end_matches('/').to_owned())
-                .collect();
-            let sent = all_targets.iter().filter(|t| !failed_set.contains(t.as_str())).count();
-            Ok::<_, String>((sent, failed_set.len(), all_targets))
+                let tags: Vec<Tag> = relay_urls
+                    .iter()
+                    .filter_map(|url| {
+                        let trimmed = url.trim().trim_end_matches('/');
+                        Tag::parse(["r", trimmed]).ok()
+                    })
+                    .collect();
+                let builder = EventBuilder::new(Kind::Custom(10002), "").tags(tags);
+                let result = client.send_event_builder_to(all_targets.clone(), builder).await;
+                client.disconnect().await;
+                let output = result.map_err(|e| format!("publish failed: {e}"))?;
+                let failed_set: std::collections::HashSet<String> = output
+                    .failed
+                    .keys()
+                    .map(|url| url.to_string().trim_end_matches('/').to_owned())
+                    .collect();
+                let sent = all_targets.iter().filter(|t| !failed_set.contains(t.as_str())).count();
+                if sent == 0 {
+                    return Err("publish failed: no relay accepted the event".to_string());
+                }
+                Ok::<_, String>((sent, failed_set.len(), all_targets))
+            };
+
+            match tokio::time::timeout(std::time::Duration::from_secs(30), publish_future).await {
+                Ok(result) => result,
+                Err(_) => Err("publish timed out after 30s (check network/relay connectivity)".to_string()),
+            }
         }).map_err(|e: String| crate::Error::InvalidConfig(e))?;
 
         Ok(PublishRelayListResponse { sent, failed, targets })

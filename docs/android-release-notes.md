@@ -1,12 +1,9 @@
-## Cordn Coordinator 0.5.9 (Android)
+## Cordn Coordinator 0.5.10 (Android)
 
-### Fixes and resilience improvements
+### Fixes
 
-- **Publish Relay List fix:** Resolved `invalid args \`payload\` for command \`publish_relay_list\`: missing field \`privateKeyHex\``. The publish command now resolves identity/config natively (Android KeyStore / local identity file) and no longer requires private key material from the frontend.
-- **R1/R2 recovery hardening:** Transient transport/runtime failures no longer exhaust a small retry budget and stop permanently. The coordinator keeps the foreground service alive in a degraded reconnecting state with capped exponential backoff (60s, 2m, 5m, 10m, 15m, 30m, 60m cap), resets after sustained healthy runtime, and distinguishes obvious fatal config/identity errors.
-- **R3 relay health gating:** Status/health labels distinguish total relay loss, partial connectivity, and full connectivity. Relay counts, rejected subscriptions, and repair activity are surfaced in diagnostics/UI.
-- **R6 diagnostics:** Recovery attempt count, next retry time, and last fatal reason are exposed in status/UI/notification state.
-- **R7 transport resilience:** Vendored ContextVM SDK server event loop patched to re-acquire relay notifications on broadcast channel closure instead of exiting fatally.
+- **Publish Relay List freeze fix:** The "Publish relay list" action no longer risks freezing the app. The publish command now runs off the UI path, checks relay connectivity, enforces an overall 30s timeout, disconnects the temporary publish client cleanly, and returns clear errors when no relays connect, no relay accepts the event, or publishing times out.
+- Includes 0.5.9 resilience/diagnostics improvements (publish payload fix, R1/R2/R3/R6/R7 relay recovery and health diagnostics).
 
 ### Install / update
 
