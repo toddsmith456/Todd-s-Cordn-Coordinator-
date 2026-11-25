@@ -328,9 +328,10 @@ impl<R: Runtime> CordnAndroidService<R> {
                     let _ = client.add_relay(url.as_str()).await;
                 }
                 client.connect().await;
-                let connected = client
+                client
                     .wait_for_connection(std::time::Duration::from_secs(10))
                     .await;
+                let connected = client.relays().await.values().any(|r| r.is_connected());
                 if !connected {
                     client.disconnect().await;
                     return Err("could not connect to any relay (check network/relay URLs)".to_string());

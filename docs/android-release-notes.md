@@ -1,4 +1,4 @@
-## Cordn Coordinator 0.5.10 (Android)
+## Cordn Coordinator 0.5.11 (Android)
 
 ### Fixes
 
