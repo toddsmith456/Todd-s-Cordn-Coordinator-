@@ -22,6 +22,7 @@
 		type ServiceDiagnostics,
 		type ServiceStatus
 	} from '$lib/coordinator';
+	import { DEFAULT_RELAY_POOL, pickRandomRelays, parseRelayInput } from '$lib/relayPool';
 
 	let status = $state<ServiceStatus>({ state: 'stopped', batteryExempt: false });
     let schedule = $state<RestartSchedule | null>(null);
@@ -61,6 +62,8 @@
 	let diagnosticsError = $state('');
 	let logView = $state<HTMLPreElement>();
 	let relays = $state(defaultConfig.relayUrls.join('\n'));
+	let relayBrowserOpen = $state(false);
+	let relaySearch = $state('');
 	let serverName = $state(defaultConfig.serverName);
 	let serverAbout = $state('');
 	let serverWebsite = $state('');
@@ -80,13 +83,39 @@
 	let publishRelayError = $state('');
     let healthLabel = $derived(statusUnavailable ? 'Status unavailable — check connection to service' : status.healthLabel ?? status.state);
 	let active = $derived(['starting', 'running', 'stopping'].includes(status.state));
-	const relaysList = $derived(
-		relays
-			.split(/[\n,]/)
-			.map((relay) => relay.trim())
-			.filter(Boolean)
-	);
+	const relaysList = $derived(parseRelayInput(relays));
 	let relayCount = $derived(relaysList.length);
+	const filteredRelayPool = $derived(
+		DEFAULT_RELAY_POOL.filter((entry) => {
+			const q = relaySearch.trim().toLowerCase();
+			if (!q) return true;
+			return (
+				entry.url.toLowerCase().includes(q) ||
+				entry.name.toLowerCase().includes(q) ||
+				entry.note.toLowerCase().includes(q)
+			);
+		})
+	);
+
+	function addRelay(url: string) {
+		const current = parseRelayInput(relays);
+		if (current.includes(url)) return;
+		relays = [...current, url].join('\n');
+	}
+
+	function removeRelay(url: string) {
+		relays = parseRelayInput(relays)
+			.filter((r) => r !== url)
+			.join('\n');
+	}
+
+	function randomizeRelays() {
+		const current = parseRelayInput(relays);
+		if (current.length > 0 && !confirm('Replace the current relay list with 3 random relays from the vetted pool?')) {
+			return;
+		}
+		relays = pickRandomRelays(DEFAULT_RELAY_POOL, 3).join('\n');
+	}
 	let pubkeyText = $derived(
 		pubkeyFormat === 'hex' || !pubkeyDisplay
 			? status.publicKey ?? ''
@@ -114,19 +143,20 @@
 
 	async function load() {
 		try {
-			const [saved, current] = await Promise.all([getConfig(), getStatus()]);
-			relays = saved.relayUrls.join('\n');
+			const [configResult, current] = await Promise.all([getConfig(), getStatus()]);
+			const saved = configResult.config;
+			relays = (configResult.saved ? saved.relayUrls : pickRandomRelays(DEFAULT_RELAY_POOL, 3)).join('\n');
 			serverName = saved.serverName;
 			serverAbout = saved.serverAbout ?? '';
 			serverWebsite = saved.serverWebsite ?? '';
 			isAnnounced = saved.isAnnounced;
 			maxAgeDays = saved.maxAgeDays;
-            status = current;
-            schedule = await restartSchedule();
-            scheduleEnabled = schedule.enabled;
-            scheduleCount = String(schedule.times.length);
-            firstRestart = schedule.times[0] ?? '03:00';
-            secondRestart = schedule.times[1] ?? '15:00';
+			status = current;
+			schedule = await restartSchedule();
+			scheduleEnabled = schedule.enabled;
+			scheduleCount = String(schedule.times.length);
+			firstRestart = schedule.times[0] ?? '03:00';
+			secondRestart = schedule.times[1] ?? '15:00';
 		} catch (cause) {
 			error = message(cause);
 		}
@@ -545,9 +575,56 @@
 			<fieldset disabled={active || busy} aria-label="Coordinator configuration">
 				<label>
 					<span>Relay URLs</span>
-					<textarea bind:value={relays} rows="3" required spellcheck="false"></textarea>
-					<small>One wss:// URL per line</small>
+					<textarea bind:value={relays} rows="4" required spellcheck="false"></textarea>
+					<small>One wss:// URL per line. Fresh setups start with 3 random vetted relays.</small>
 				</label>
+				<div class="relay-actions">
+					<button type="button" class="relay-action" onclick={randomizeRelays}>Pick 3 random</button>
+					<button type="button" class="relay-action" onclick={() => (relayBrowserOpen = true)}>Browse relays</button>
+				</div>
+				{#if relayBrowserOpen}
+					<div class="relay-browser" role="dialog" aria-label="Browse relays">
+						<div class="relay-browser-header">
+							<div>
+								<strong>Browse relays</strong>
+								<small>{DEFAULT_RELAY_POOL.length} vetted relays · add any you want</small>
+							</div>
+							<button type="button" class="relay-close" onclick={() => (relayBrowserOpen = false)}>Close</button>
+						</div>
+						<input
+							class="relay-search"
+							bind:value={relaySearch}
+							type="search"
+							placeholder="Search relays..."
+							spellcheck="false"
+						/>
+						<div class="relay-list" role="list">
+							{#each filteredRelayPool as entry (entry.url)}
+								{@const added = relaysList.includes(entry.url)}
+								<div class="relay-item" role="listitem">
+									<div class="relay-item-info">
+										<div class="relay-item-top">
+											<strong>{entry.name}</strong>
+											{#if entry.ephemeralAdvertised}
+												<span class="relay-badge">NIP-16</span>
+											{/if}
+										</div>
+										<code>{entry.url}</code>
+										<small>{entry.note}</small>
+									</div>
+									<button
+										type="button"
+										class="relay-add"
+										class:added
+										onclick={() => (added ? removeRelay(entry.url) : addRelay(entry.url))}
+									>
+										{added ? 'Added' : 'Add'}
+									</button>
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/if}
 
 				<label>
 					<span>Server name</span>
@@ -735,4 +812,26 @@
 	.publish-relay-btn { flex: 0 0 auto; padding: 8px 14px; background: #70e49b; color: #07140c; font-size: .75rem; font-weight: 700; }
 	.publish-relay-success { margin-top: 8px; color: #70e49b; font-size: .75rem; }
 	@media (max-width: 390px) { .row { grid-template-columns: 1fr; } .reliability { align-items: flex-start; flex-direction: column; } }
+	.relay-actions { display: flex; gap: 8px; margin-top: -4px; }
+	.relay-action { flex: 1; padding: 10px 12px; border: 1px solid #2a3930; border-radius: 11px; background: #0a0e0c; color: #d9e5dd; font-size: .75rem; font-weight: 700; cursor: pointer; }
+	.relay-action:hover { border-color: #3a5444; color: #a3f0bd; }
+	.relay-browser { margin-top: 4px; border: 1px solid #2a3930; border-radius: 14px; background: #0a0e0c; overflow: hidden; }
+	.relay-browser-header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding: 14px; border-bottom: 1px solid #1d2922; }
+	.relay-browser-header strong { display: block; font-size: .82rem; color: #d9e5dd; }
+	.relay-browser-header small { display: block; margin-top: 2px; font-size: .7rem; color: #68796e; }
+	.relay-close { padding: 8px 10px; border: 1px solid #2a3930; border-radius: 9px; background: transparent; color: #83a690; font-size: .72rem; font-weight: 700; cursor: pointer; }
+	.relay-search { width: 100%; padding: 12px 14px; border: 0; border-bottom: 1px solid #1d2922; background: #0d1310; color: #edf6f0; font-size: .8rem; outline: none; }
+	.relay-search::placeholder { color: #5f7066; }
+	.relay-list { max-height: 320px; overflow: auto; }
+	.relay-item { display: flex; gap: 12px; align-items: center; padding: 12px 14px; border-bottom: 1px solid #18211c; }
+	.relay-item:last-child { border-bottom: 0; }
+	.relay-item-info { min-width: 0; flex: 1; }
+	.relay-item-top { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+	.relay-item-info strong { font-size: .78rem; color: #d9e5dd; }
+	.relay-item-info code { display: block; font-size: .68rem; color: #83a690; word-break: break-all; }
+	.relay-item-info small { display: block; margin-top: 2px; font-size: .68rem; color: #68796e; line-height: 1.35; }
+	.relay-badge { padding: 2px 6px; border-radius: 999px; background: #183024; color: #70e49b; font-size: .62rem; font-weight: 700; letter-spacing: .02em; }
+	.relay-add { flex: 0 0 auto; padding: 8px 12px; border: 1px solid #2a3930; border-radius: 9px; background: #111916; color: #d9e5dd; font-size: .72rem; font-weight: 700; cursor: pointer; }
+	.relay-add:hover { border-color: #70e49b; color: #70e49b; }
+	.relay-add.added { background: #183024; border-color: #2f5a42; color: #70e49b; }
 </style>

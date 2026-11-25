@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Cordn Coordinator",
   "mainBinaryName": "cordn-coordinator",
-  "version": "0.5.13",
+  "version": "0.5.13-beta.1",
   "identifier": "com.toddsmith456.cordn.coordinator",
   "build": {
     "frontendDist": "../build",

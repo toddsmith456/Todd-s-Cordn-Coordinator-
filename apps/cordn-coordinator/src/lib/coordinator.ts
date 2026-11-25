@@ -38,7 +38,7 @@ export type PubkeyDisplay = {
 };
 
 export const defaultConfig: CoordinatorConfig = {
-	relayUrls: ['wss://relay.contextvm.org', 'wss://relay.nostr.net'],
+	relayUrls: ['wss://relay.contextvm.org', 'wss://relay2.contextvm.org', 'wss://cordn.feeds.relay.tools'],
 	serverName: 'cordn-server',
 	serverAbout: null,
 	serverWebsite: null,
@@ -78,9 +78,9 @@ export function resetIdentity(): Promise<ServiceStatus> {
 	return invoke(`${plugin}|reset_identity`);
 }
 
-export async function getConfig(): Promise<CoordinatorConfig> {
+export async function getConfig(): Promise<{ config: CoordinatorConfig; saved: boolean }> {
 	const response = await invoke<{ config: CoordinatorConfig | null }>(`${plugin}|config`);
-	return response.config ?? defaultConfig;
+	return { config: response.config ?? defaultConfig, saved: response.config !== null };
 }
 
 export function requestBatteryExemption(): Promise<void> {
