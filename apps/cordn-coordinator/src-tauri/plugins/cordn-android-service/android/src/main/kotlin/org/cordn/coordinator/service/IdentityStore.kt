@@ -97,10 +97,7 @@ internal class IdentityStore(
 
     companion object {
         const val KEY_ALIAS_DEFAULT = "cordn-coordinator-identity"
+        private const val TRANSFORMATION = "AES/GCM/NoPadding"
         fun aliasFor(instanceId: String): String = if (instanceId == "default") KEY_ALIAS_DEFAULT else "cordn-coordinator-identity-$instanceId"
-    }
-
-    private companion object {
-        const val TRANSFORMATION = "AES/GCM/NoPadding"
     }
 }

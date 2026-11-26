@@ -225,7 +225,7 @@ class CordnServicePlugin(private val activity: Activity) : Plugin(activity) {
             val enabled: Boolean
             val times: List<String>
             if (payloadObj != null) {
-                op = payloadObj.getString("operation", "get")
+                op = payloadObj.optString("operation", "get")
                 enabled = payloadObj.optBoolean("enabled", false)
                 val arr = payloadObj.optJSONArray("times")
                 times = if (arr != null) (0 until arr.length()).map { arr.getString(it) } else listOf("03:00")
