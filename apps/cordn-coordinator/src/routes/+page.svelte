@@ -5,25 +5,37 @@
 	import {
 		defaultConfig,
 		encodePubkey,
-		flushData,
-		getConfig,
-		getDiagnostics,
-		getStatus,
-		publishRelayList,
-		restartSchedule,
-		type RestartSchedule,
+		listInstances,
+		createInstance,
+		deleteInstance,
+		renameInstance,
+		startInstance,
+		stopInstance,
+		getInstanceConfig,
+		getInstanceDiagnostics,
+		getInstanceStatus,
+		flushDataInstance,
+		resetIdentityInstance,
+		publishRelayListInstance,
+		restartScheduleInstance,
 		requestBatteryExemption,
 		requestNotificationPermission,
-		resetIdentity,
-		start,
-		stop,
+		MAX_INSTANCES,
+		type RestartSchedule,
 		type PubkeyDisplay,
 		type PublishRelayListResult,
 		type ServiceDiagnostics,
-		type ServiceStatus
+		type ServiceStatus,
+		type InstanceStatus
 	} from '$lib/coordinator';
 	import { DEFAULT_RELAY_POOL, pickRandomRelays, parseRelayInput } from '$lib/relayPool';
 
+	let instances = $state<InstanceStatus[]>([]);
+	let selectedId = $state<string>('');
+	let newInstanceName = $state('');
+	let renamingId = $state('');
+	let renameValue = $state('');
+	let instancesError = $state('');
 	let status = $state<ServiceStatus>({ state: 'stopped', batteryExempt: false });
     let schedule = $state<RestartSchedule | null>(null);
     let scheduleEnabled = $state(false);
@@ -34,18 +46,101 @@
     let scheduleError = $state('');
     let scheduleSaved = $state(false);
 
+    function selectedInstance() { return instances.find((i) => i.instance.id === selectedId) ?? instances[0] ?? null; }
+
+    async function refreshInstances(selectId?: string) {
+        try {
+            const res = await listInstances();
+            instances = res.instances;
+            const wanted = selectId ?? selectedId;
+            if (wanted && instances.some((i) => i.instance.id === wanted)) selectedId = wanted;
+            else selectedId = instances[0]?.instance.id ?? '';
+            instancesError = '';
+        } catch (cause) {
+            instancesError = message(cause);
+        }
+    }
+
+    async function loadSelectedInstance() {
+        if (!selectedId) return;
+        try {
+            const [configResult, current] = await Promise.all([getInstanceConfig(selectedId), getInstanceStatus(selectedId)]);
+            const saved = configResult.config;
+            relays = (configResult.saved ? saved.relayUrls : pickRandomRelays(DEFAULT_RELAY_POOL, 3)).join('\n');
+            serverName = saved.serverName;
+            serverAbout = saved.serverAbout ?? '';
+            serverWebsite = saved.serverWebsite ?? '';
+            isAnnounced = saved.isAnnounced;
+            maxAgeDays = saved.maxAgeDays;
+            status = current;
+            statusUnavailable = false;
+            schedule = await restartScheduleInstance(selectedId);
+            scheduleEnabled = schedule.enabled;
+            scheduleCount = String(schedule.times.length);
+            firstRestart = schedule.times[0] ?? '03:00';
+            secondRestart = schedule.times[1] ?? '15:00';
+            scheduleError = '';
+            diagnostics = null;
+            diagnosticsError = '';
+            publishRelayResult = null;
+            publishRelayError = '';
+        } catch (cause) {
+            error = message(cause);
+        }
+    }
+
+    async function selectInstance(id: string) {
+        if (id === selectedId) return;
+        selectedId = id;
+        error = '';
+        await loadSelectedInstance();
+    }
+
+    async function createNewInstance() {
+        try {
+            instancesError = '';
+            const info = await createInstance(newInstanceName.trim() || undefined);
+            newInstanceName = '';
+            await refreshInstances(info.id);
+            await loadSelectedInstance();
+        } catch (cause) { instancesError = message(cause); }
+    }
+
+    function startRename(id: string, name: string) { renamingId = id; renameValue = name; }
+    async function saveRename() {
+        if (!renamingId) return;
+        try {
+            await renameInstance(renamingId, renameValue.trim());
+            renamingId = ''; renameValue = '';
+            await refreshInstances(selectedId);
+        } catch (cause) { instancesError = message(cause); }
+    }
+    async function removeInstance(id: string) {
+        const inst = instances.find((i) => i.instance.id === id);
+        if (!inst) return;
+        if (!confirm(`Delete "${inst.instance.name}"? This removes its identity, config, and local data for that coordinator.`)) return;
+        try {
+            await deleteInstance(id);
+            if (selectedId === id) selectedId = '';
+            await refreshInstances();
+            await loadSelectedInstance();
+        } catch (cause) { instancesError = message(cause); }
+    }
+
     async function refreshSchedule() {
-        try { schedule = await restartSchedule(); }
+        if (!selectedId) return;
+        try { schedule = await restartScheduleInstance(selectedId); }
         catch (cause) { scheduleError = message(cause); }
     }
 
     async function saveSchedule(event: SubmitEvent) {
         event.preventDefault();
+        if (!selectedId) return;
         scheduleBusy = true;
         scheduleError = '';
         scheduleSaved = false;
         try {
-            schedule = await restartSchedule('save', scheduleEnabled,
+            schedule = await restartScheduleInstance(selectedId, 'save', scheduleEnabled,
                 scheduleCount === '2' ? [firstRestart, secondRestart] : [firstRestart]);
             scheduleSaved = true;
         } catch (cause) { scheduleError = message(cause); }
@@ -53,7 +148,8 @@
     }
 
     async function allowAlarms() {
-        try { await restartSchedule('permission'); }
+        if (!selectedId) return;
+        try { await restartScheduleInstance(selectedId, 'permission'); }
         catch (cause) { scheduleError = message(cause); }
     }
 
@@ -75,7 +171,7 @@
 	let pubkeyFormat = $state<'npub' | 'nprofile' | 'hex'>('npub');
 	let pubkeyDisplay = $state<PubkeyDisplay | null>(null);
 	let qrSvg = $state('');
-	let dangerConfirm = $state<'' | 'flush' | 'reset'>('');
+	let dangerConfirm = $state<'' | 'flush' | 'reset'>(''); 
 	let dangerTimer = 0;
 	let statusUnavailable = $state(false);
 	let publishRelayBusy = $state(false);
@@ -128,7 +224,7 @@
 	);
 
 	onMount(() => {
-		void load();
+		void (async () => { await refreshInstances(); await loadSelectedInstance(); })();
 		const poll = window.setInterval(() => void refresh(), 2_000);
         const focus = () => { void refreshSchedule(); };
         window.addEventListener('focus', focus);
@@ -142,30 +238,17 @@
 	});
 
 	async function load() {
-		try {
-			const [configResult, current] = await Promise.all([getConfig(), getStatus()]);
-			const saved = configResult.config;
-			relays = (configResult.saved ? saved.relayUrls : pickRandomRelays(DEFAULT_RELAY_POOL, 3)).join('\n');
-			serverName = saved.serverName;
-			serverAbout = saved.serverAbout ?? '';
-			serverWebsite = saved.serverWebsite ?? '';
-			isAnnounced = saved.isAnnounced;
-			maxAgeDays = saved.maxAgeDays;
-			status = current;
-			schedule = await restartSchedule();
-			scheduleEnabled = schedule.enabled;
-			scheduleCount = String(schedule.times.length);
-			firstRestart = schedule.times[0] ?? '03:00';
-			secondRestart = schedule.times[1] ?? '15:00';
-		} catch (cause) {
-			error = message(cause);
-		}
+		await refreshInstances();
+		await loadSelectedInstance();
 	}
 
 	async function refresh() {
 		try {
-			status = await getStatus();
-            statusUnavailable = false;
+			await refreshInstances(selectedId);
+			if (selectedId) {
+				status = await getInstanceStatus(selectedId);
+				statusUnavailable = false;
+			}
 		} catch {
 			statusUnavailable = true;
 		}
@@ -173,10 +256,11 @@
 	}
 
 	async function refreshDiagnostics() {
+		if (!selectedId) return;
 		const follow =
 			!logView || logView.scrollHeight - logView.scrollTop - logView.clientHeight < 24;
 		try {
-			diagnostics = await getDiagnostics();
+			diagnostics = await getInstanceDiagnostics(selectedId);
 			diagnosticsError = '';
 			await tick();
 			if (follow && logView) logView.scrollTop = logView.scrollHeight;
@@ -225,7 +309,7 @@
 
 	async function shareLink() {
 		try {
-			await navigator.share({ title: 'Todd's Coordinator', url: shareUrl });
+			await navigator.share({ title: "Todd's Coordinator", url: shareUrl });
 		} catch (cause) {
 			error = message(cause);
 		}
@@ -245,12 +329,14 @@
 		if (dangerConfirm) dangerTimer = window.setTimeout(() => (dangerConfirm = ''), 4_000);
 	}
 
-	async function runDestructive(action: () => Promise<ServiceStatus>) {
+	async function runDestructive(action: 'flush' | 'reset') {
+		if (!selectedId) return;
 		dangerConfirm = '';
 		busy = true;
 		error = '';
 		try {
-			status = await action();
+			status = action === 'flush' ? await flushDataInstance(selectedId) : await resetIdentityInstance(selectedId);
+			await refreshInstances(selectedId);
 		} catch (cause) {
 			error = message(cause);
 		} finally {
@@ -260,11 +346,13 @@
 
 	async function startCoordinator(event: SubmitEvent) {
 		event.preventDefault();
+		if (!selectedId) return;
 		busy = true;
 		error = '';
 		try {
 			await requestNotificationPermission().catch(() => undefined);
-			status = await start(
+			status = await startInstance(
+				selectedId,
 				{
 					relayUrls: relays
 						.split(/[\n,]/)
@@ -279,6 +367,7 @@
 				privateKey.trim() || undefined
 			);
 			privateKey = '';
+			await refreshInstances(selectedId);
 		} catch (cause) {
 			error = message(cause);
 		} finally {
@@ -287,10 +376,12 @@
 	}
 
 	async function stopCoordinator() {
+		if (!selectedId) return;
 		busy = true;
 		error = '';
 		try {
-			status = await stop();
+			status = await stopInstance(selectedId);
+			await refreshInstances(selectedId);
 		} catch (cause) {
 			error = message(cause);
 		} finally {
@@ -307,11 +398,12 @@
 	}
 
 	async function doPublishRelayList() {
+		if (!selectedId) return;
 		publishRelayBusy = true;
 		publishRelayError = '';
 		publishRelayResult = null;
 		try {
-			publishRelayResult = await publishRelayList();
+			publishRelayResult = await publishRelayListInstance(selectedId);
 		} catch (cause) {
 			publishRelayError = message(cause);
 		} finally {
@@ -363,10 +455,46 @@
 		<div class:running={status.state === 'running' && !statusUnavailable && (healthLabel.startsWith('Relay connected') || healthLabel.startsWith('Partially connected'))} class="status-dot" title={status.state}></div>
 	</header>
 
+	<section class="instances-panel" aria-label="Coordinators">
+		<div class="instances-head">
+			<div>
+				<p class="label">Coordinators</p>
+				<strong>{instances.length} / {MAX_INSTANCES}</strong>
+			</div>
+			<div class="instances-add">
+				<input type="text" placeholder="New coordinator name" bind:value={newInstanceName} maxlength="64" />
+				<button type="button" class="small-btn" onclick={createNewInstance} disabled={instances.length >= MAX_INSTANCES}>Add</button>
+			</div>
+		</div>
+		<div class="instances-list">
+			{#each instances as inst (inst.instance.id)}
+				<div class="instance-row" class:selected={inst.instance.id === selectedId}>
+					<button type="button" class="instance-select" onclick={() => selectInstance(inst.instance.id)}>
+						<span class="instance-dot" class:running={inst.status.state === 'running'} class:error={inst.status.state === 'error'}></span>
+						<span class="instance-name">{inst.instance.name}</span>
+						<span class="instance-state">{inst.status.state}</span>
+					</button>
+					<div class="instance-actions">
+						{#if renamingId === inst.instance.id}
+							<input class="rename-input" bind:value={renameValue} maxlength="64" />
+							<button type="button" class="small-btn" onclick={saveRename}>Save</button>
+							<button type="button" class="small-btn muted" onclick={() => (renamingId = '')}>Cancel</button>
+						{:else}
+							<button type="button" class="small-btn muted" onclick={() => startRename(inst.instance.id, inst.instance.name)}>Rename</button>
+							<button type="button" class="small-btn danger-text" onclick={() => removeInstance(inst.instance.id)} disabled={instances.length <= 1 || ['starting','running','stopping'].includes(inst.status.state)}>Delete</button>
+						{/if}
+					</div>
+				</div>
+			{/each}
+		</div>
+		{#if instancesError}<p class="error">{instancesError}</p>{/if}
+		<p class="status-copy">Each coordinator has its own identity, relays, and local data. You can run up to {MAX_INSTANCES} at once.</p>
+	</section>
+
 	<section class="status-card" aria-live="polite">
 		<div class="status-heading">
 			<div>
-				<p class="label">Status</p>
+				<p class="label">Status{#if selectedInstance()} · {selectedInstance()?.instance.name}{/if}</p>
 				<strong>{healthLabel}</strong>
 				<p class="status-copy">
 					{status.state === 'running'
@@ -682,7 +810,7 @@
 							type="button"
 							class="danger"
 							onclick={() =>
-								dangerConfirm === 'flush' ? void runDestructive(flushData) : armDanger('flush')}
+								dangerConfirm === 'flush' ? void runDestructive('flush') : armDanger('flush')}
 						>
 							{dangerConfirm === 'flush' ? 'Tap again to erase' : 'Erase'}
 						</button>
@@ -699,7 +827,7 @@
 							type="button"
 							class="danger"
 							onclick={() =>
-								dangerConfirm === 'reset' ? void runDestructive(resetIdentity) : armDanger('reset')}
+								dangerConfirm === 'reset' ? void runDestructive('reset') : armDanger('reset')}
 						>
 							{dangerConfirm === 'reset' ? 'Tap again to reset' : 'Reset'}
 						</button>
@@ -736,7 +864,26 @@
 	.mark span { width: 7px; height: 7px; background: #70e49b; }
 	.status-dot { width: 9px; height: 9px; margin-left: auto; border-radius: 50%; background: #66706a; box-shadow: 0 0 0 5px #66706a18; }
 	.status-dot.running { background: #70e49b; box-shadow: 0 0 0 5px #70e49b18, 0 0 16px #70e49b80; }
-	.status-card, .panel { margin-bottom: 12px; border: 1px solid #202b24; border-radius: 16px; background: #101512e6; }
+	.status-card, .panel, .instances-panel { margin-bottom: 12px; border: 1px solid #202b24; border-radius: 16px; background: #101512e6; }
+	.instances-panel { padding: 16px; }
+	.instances-head { display: flex; justify-content: space-between; gap: 12px; align-items: end; flex-wrap: wrap; margin-bottom: 12px; }
+	.instances-add { display: flex; gap: 8px; align-items: center; }
+	.instances-add input { min-width: 220px; }
+	.instances-list { display: flex; flex-direction: column; gap: 8px; }
+	.instance-row { display: flex; gap: 8px; align-items: stretch; border: 1px solid #233028; border-radius: 12px; overflow: hidden; }
+	.instance-row.selected { border-color: #70e49b66; background: #132018; }
+	.instance-select { flex: 1; display: flex; gap: 10px; align-items: center; padding: 10px 12px; background: transparent; border: 0; color: #e9efe9; text-align: left; cursor: pointer; }
+	.instance-dot { width: 8px; height: 8px; border-radius: 999px; background: #6b776f; flex: 0 0 auto; }
+	.instance-dot.running { background: #70e49b; }
+	.instance-dot.error { background: #ff7b7b; }
+	.instance-name { font-weight: 600; }
+	.instance-state { margin-left: auto; color: #9aa49c; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+	.instance-actions { display: flex; gap: 6px; align-items: center; padding: 8px; border-left: 1px solid #233028; }
+	.small-btn { padding: 6px 10px; border-radius: 8px; border: 1px solid #304038; background: #18221b; color: #dce7de; cursor: pointer; font-size: 12px; }
+	.small-btn:disabled { opacity: .45; cursor: not-allowed; }
+	.small-btn.muted { color: #aab5ad; }
+	.small-btn.danger-text { color: #ffaaaa; border-color: #5a3030; }
+	.rename-input { width: 160px; }
 	.status-card { padding: 20px; }
 	.status-heading strong { display: block; margin-top: 4px; font-size: 1.35rem; text-transform: capitalize; }
 	.status-copy { margin-top: 3px; color: #718077; font-size: .78rem; }

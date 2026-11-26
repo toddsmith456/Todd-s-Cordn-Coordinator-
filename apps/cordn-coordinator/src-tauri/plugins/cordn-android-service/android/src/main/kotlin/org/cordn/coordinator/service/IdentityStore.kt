@@ -14,12 +14,12 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import org.json.JSONObject
 
-internal class IdentityStore(context: Context) {
-    // A plain file, not SharedPreferences: the store is read from the
-    // :coordinator process and written from the app process (reset), and
-    // SharedPreferences caches per process — a stale cached ciphertext would
-    // then be decrypted with a freshly generated Keystore key.
-    private val file = AtomicFile(File(context.noBackupFilesDir, "cordn-identity.json"))
+internal class IdentityStore(
+    context: Context,
+    instanceDir: File,
+    private val keyAlias: String = KEY_ALIAS_DEFAULT,
+) {
+    private val file = AtomicFile(File(instanceDir, "cordn-identity.json"))
 
     fun getOrCreate(imported: String?): String {
         if (!imported.isNullOrBlank()) {
@@ -51,7 +51,7 @@ internal class IdentityStore(context: Context) {
     fun reset() {
         file.delete()
         val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        keyStore.deleteEntry(KEY_ALIAS)
+        keyStore.deleteEntry(keyAlias)
     }
 
     private fun read(): Pair<String, String>? {
@@ -66,10 +66,7 @@ internal class IdentityStore(context: Context) {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, key())
         val json = JSONObject()
-            .put(
-                "ciphertext",
-                Base64.encodeToString(cipher.doFinal(secret.toByteArray()), Base64.NO_WRAP),
-            )
+            .put("ciphertext", Base64.encodeToString(cipher.doFinal(secret.toByteArray()), Base64.NO_WRAP))
             .put("iv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
         val output = file.startWrite()
         try {
@@ -83,12 +80,11 @@ internal class IdentityStore(context: Context) {
 
     private fun key(): SecretKey {
         val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (keyStore.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
-
+        (keyStore.getKey(keyAlias, null) as? SecretKey)?.let { return it }
         return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").run {
             init(
                 KeyGenParameterSpec.Builder(
-                    KEY_ALIAS,
+                    keyAlias,
                     KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
                 )
                     .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
@@ -99,8 +95,12 @@ internal class IdentityStore(context: Context) {
         }
     }
 
+    companion object {
+        const val KEY_ALIAS_DEFAULT = "cordn-coordinator-identity"
+        fun aliasFor(instanceId: String): String = if (instanceId == "default") KEY_ALIAS_DEFAULT else "cordn-coordinator-identity-$instanceId"
+    }
+
     private companion object {
-        const val KEY_ALIAS = "cordn-coordinator-identity"
         const val TRANSFORMATION = "AES/GCM/NoPadding"
     }
 }

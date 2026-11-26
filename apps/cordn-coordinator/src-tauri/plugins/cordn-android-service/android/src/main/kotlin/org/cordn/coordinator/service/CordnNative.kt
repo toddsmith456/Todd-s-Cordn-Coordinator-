@@ -1,10 +1,10 @@
 package org.cordn.coordinator.service
 
 internal class CordnNative {
-    external fun runCoordinator(configJson: String, privateKeyHex: String, dataDir: String): String?
-    external fun prepareStart()
-    external fun stopCoordinator()
-    external fun networkChanged()
+    external fun runCoordinator(instanceId: String, configJson: String, privateKeyHex: String, dataDir: String): String?
+    external fun prepareStart(instanceId: String)
+    external fun stopCoordinator(instanceId: String)
+    external fun networkChanged(instanceId: String)
 
     private companion object {
         init {

@@ -13,15 +13,24 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 internal object RestartSchedule {
-    private fun file(context: Context) = AtomicFile(File(context.noBackupFilesDir, "cordn-restart-schedule.json"))
-    fun read(context: Context): JSONObject = runCatching {
-        file(context).openRead().bufferedReader().use { JSONObject(it.readText()) }
+    private fun file(context: Context, instanceId: String): AtomicFile =
+        AtomicFile(File(InstanceRegistry.instanceDir(context.noBackupFilesDir, instanceId), "cordn-restart-schedule.json"))
+
+    // legacy compat
+    fun read(context: Context): JSONObject = read(context, InstanceRegistry.defaultInstanceId(context.noBackupFilesDir))
+
+    fun read(context: Context, instanceId: String): JSONObject = runCatching {
+        file(context, instanceId).openRead().bufferedReader().use { JSONObject(it.readText()) }
     }.getOrElse { JSONObject().put("enabled", false).put("times", JSONArray().put("03:00")) }
 
     fun allowed(context: Context): Boolean = Build.VERSION.SDK_INT < 31 ||
         context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
 
     fun save(context: Context, enabled: Boolean, times: List<String>) {
+        save(context, InstanceRegistry.defaultInstanceId(context.noBackupFilesDir), enabled, times)
+    }
+
+    fun save(context: Context, instanceId: String, enabled: Boolean, times: List<String>) {
         require(times.size in 1..2) { "Choose one or two restart times" }
         require(times.all { it.matches(Regex("([01][0-9]|2[0-3]):[0-5][0-9]")) }) { "Invalid restart time" }
         require(times.distinct().size == times.size) { "Restart times must be different" }
@@ -32,16 +41,12 @@ internal object RestartSchedule {
             require(minOf(gap, 1440 - gap) >= 15) { "Keep restarts at least 15 minutes apart" }
         }
         val data = JSONObject().put("enabled", enabled).put("times", JSONArray(times))
-        val f = file(context)
+        val f = file(context, instanceId)
+        f.baseFile.parentFile?.mkdirs()
         val output = f.startWrite()
-        try {
-            output.write(data.toString().toByteArray())
-            f.finishWrite(output)
-        } catch (error: Exception) {
-            f.failWrite(output)
-            throw error
-        }
-        schedule(context)
+        try { output.write(data.toString().toByteArray()); f.finishWrite(output) }
+        catch (error: Exception) { f.failWrite(output); throw error }
+        schedule(context, instanceId)
     }
 
     fun nextTime(time: String, now: Long = System.currentTimeMillis()): Long {
@@ -57,26 +62,42 @@ internal object RestartSchedule {
         return date.timeInMillis
     }
 
-    private fun pending(context: Context, index: Int): PendingIntent {
-        val intent = Intent(context, CordnService::class.java).setAction(CordnService.ACTION_RESTART)
+    private fun requestCode(instanceId: String, index: Int): Int {
+        val base = (instanceId.hashCode() and 0x7fffffff) % 100000
+        return 4200 + base * 2 + index
+    }
+
+    private fun pending(context: Context, instanceId: String, index: Int): PendingIntent {
+        val intent = Intent(context, CordnService::class.java)
+            .setAction(CordnService.ACTION_RESTART)
+            .putExtra(CordnService.EXTRA_INSTANCE_ID, instanceId)
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        return if (Build.VERSION.SDK_INT >= 26) PendingIntent.getForegroundService(context, 4200 + index, intent, flags)
-        else PendingIntent.getService(context, 4200 + index, intent, flags)
+        val rc = requestCode(instanceId, index)
+        return if (Build.VERSION.SDK_INT >= 26) PendingIntent.getForegroundService(context, rc, intent, flags)
+        else PendingIntent.getService(context, rc, intent, flags)
     }
 
     fun schedule(context: Context) {
-        val manager = context.getSystemService(AlarmManager::class.java)
-        for (index in 0..1) manager.cancel(pending(context, index))
-        val data = read(context)
-        if (!data.optBoolean("enabled") || !allowed(context)) return
-        val times = data.getJSONArray("times")
-        for (index in 0 until times.length()) {
-            manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, nextTime(times.getString(index)), pending(context, index))
+        InstanceRegistry.list(context.noBackupFilesDir).forEach { o ->
+            schedule(context, o.optString("id"))
         }
     }
 
-    fun response(context: Context): JSONObject {
-        val data = read(context)
+    fun schedule(context: Context, instanceId: String) {
+        val manager = context.getSystemService(AlarmManager::class.java)
+        for (index in 0..1) manager.cancel(pending(context, instanceId, index))
+        val data = read(context, instanceId)
+        if (!data.optBoolean("enabled") || !allowed(context)) return
+        val times = data.getJSONArray("times")
+        for (index in 0 until times.length()) {
+            manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, nextTime(times.getString(index)), pending(context, instanceId, index))
+        }
+    }
+
+    fun response(context: Context): JSONObject = response(context, InstanceRegistry.defaultInstanceId(context.noBackupFilesDir))
+
+    fun response(context: Context, instanceId: String): JSONObject {
+        val data = read(context, instanceId)
         data.put("exactAlarmAllowed", allowed(context))
         val times = data.getJSONArray("times")
         val next = if (data.optBoolean("enabled") && allowed(context))
@@ -87,7 +108,6 @@ internal object RestartSchedule {
 
 class RestartScheduleReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        // Restore only alarms, never start a manually stopped coordinator.
         runCatching { RestartSchedule.schedule(context) }
     }
 }

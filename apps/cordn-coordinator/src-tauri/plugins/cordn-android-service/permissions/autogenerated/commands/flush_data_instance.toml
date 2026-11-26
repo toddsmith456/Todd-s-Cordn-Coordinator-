@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-flush-data-instance"
+description = "Enables the flush_data_instance command without any pre-configured scope."
+commands.allow = ["flush_data_instance"]
+
+[[permission]]
+identifier = "deny-flush-data-instance"
+description = "Denies the flush_data_instance command without any pre-configured scope."
+commands.deny = ["flush_data_instance"]

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-status-instance"
+description = "Enables the status_instance command without any pre-configured scope."
+commands.allow = ["status_instance"]
+
+[[permission]]
+identifier = "deny-status-instance"
+description = "Denies the status_instance command without any pre-configured scope."
+commands.deny = ["status_instance"]

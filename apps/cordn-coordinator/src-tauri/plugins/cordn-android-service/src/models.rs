@@ -1,5 +1,17 @@
 use serde::{Deserialize, Serialize};
 
+pub const MAX_INSTANCES: usize = 5;
+pub const DEFAULT_INSTANCE_ID: &str = "default";
+pub const DEFAULT_INSTANCE_NAME: &str = "Coordinator 1";
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct InstanceInfo {
+    pub id: String,
+    pub name: String,
+    pub created_at: u64,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CoordinatorConfig {
@@ -57,6 +69,47 @@ impl CoordinatorConfig {
 pub struct StartRequest {
     pub config: CoordinatorConfig,
     pub private_key_hex: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstanceRequest {
+    pub instance_id: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateInstanceRequest {
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameInstanceRequest {
+    pub instance_id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteInstanceRequest {
+    pub instance_id: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstanceStartRequest {
+    pub instance_id: String,
+    pub config: CoordinatorConfig,
+    pub private_key_hex: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstanceEncodePubkeyRequest {
+    pub instance_id: Option<String>,
+    pub public_key: String,
+    pub relay_urls: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -121,6 +174,20 @@ pub struct ServiceDiagnostics {
 #[serde(rename_all = "camelCase")]
 pub struct ConfigResponse {
     pub config: Option<CoordinatorConfig>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstanceStatus {
+    pub instance: InstanceInfo,
+    pub status: ServiceStatus,
+    pub config: Option<CoordinatorConfig>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstancesResponse {
+    pub instances: Vec<InstanceStatus>,
 }
 
 #[derive(Debug, Deserialize)]

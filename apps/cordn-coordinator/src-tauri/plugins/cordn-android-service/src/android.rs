@@ -1,8 +1,9 @@
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Mutex, Once,
+        Mutex, Once, OnceLock,
     },
 };
 
@@ -20,11 +21,36 @@ use tokio::sync::oneshot;
 
 use crate::{CoordinatorConfig, EncodePubkeyRequest, PubkeyDisplay, ServiceStatus};
 
-static STOP_REQUESTED: AtomicBool = AtomicBool::new(false);
-static NETWORK_CHANGED: AtomicBool = AtomicBool::new(false);
-static RUNNING: AtomicBool = AtomicBool::new(false);
-static STOP: Mutex<Option<oneshot::Sender<()>>> = Mutex::new(None);
+struct InstanceRuntime {
+    stop_requested: AtomicBool,
+    network_changed: AtomicBool,
+    running: AtomicBool,
+    stop_tx: Mutex<Option<oneshot::Sender<()>>>,
+}
+
+impl Default for InstanceRuntime {
+    fn default() -> Self {
+        Self {
+            stop_requested: AtomicBool::new(false),
+            network_changed: AtomicBool::new(false),
+            running: AtomicBool::new(false),
+            stop_tx: Mutex::new(None),
+        }
+    }
+}
+
+static INSTANCES: OnceLock<Mutex<HashMap<String, InstanceRuntime>>> = OnceLock::new();
 static LOGGING: Once = Once::new();
+
+fn instances() -> &'static Mutex<HashMap<String, InstanceRuntime>> {
+    INSTANCES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn with_instance<T>(instance_id: &str, f: impl FnOnce(&InstanceRuntime) -> T) -> T {
+    let mut guard = instances().lock().unwrap();
+    let rt = guard.entry(instance_id.to_owned()).or_insert_with(InstanceRuntime::default);
+    f(rt)
+}
 
 pub(crate) fn validate_private_key(private_key_hex: &str) -> Result<(), String> {
     runtime::validate_private_key(private_key_hex)
@@ -34,6 +60,8 @@ pub(crate) fn validate_private_key(private_key_hex: &str) -> Result<(), String> 
 pub(crate) fn ensure_linked() {
     let _ = Java_org_cordn_coordinator_service_CordnNative_runCoordinator as *const ();
     let _ = Java_org_cordn_coordinator_service_CordnNative_stopCoordinator as *const ();
+    let _ = Java_org_cordn_coordinator_service_CordnNative_networkChanged as *const ();
+    let _ = Java_org_cordn_coordinator_service_CordnNative_prepareStart as *const ();
 }
 
 pub(crate) fn encode_pubkey(payload: EncodePubkeyRequest) -> crate::Result<PubkeyDisplay> {
@@ -43,30 +71,27 @@ pub(crate) fn encode_pubkey(payload: EncodePubkeyRequest) -> crate::Result<Pubke
     Ok(PubkeyDisplay { npub, nprofile })
 }
 
+fn jstring_to_string(env: &mut JNIEnv, s: &JString) -> Result<String, String> {
+    env.get_string(s).map_err(|e| e.to_string()).map(Into::into)
+}
+
 #[no_mangle]
 pub extern "system" fn Java_org_cordn_coordinator_service_CordnNative_runCoordinator(
     mut env: JNIEnv,
     _object: JObject,
+    instance_id: JString,
     config_json: JString,
     private_key_hex: JString,
     data_dir: JString,
 ) -> jstring {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let config_json: String = env
-            .get_string(&config_json)
-            .map_err(|error| error.to_string())?
-            .into();
-        let private_key_hex: String = env
-            .get_string(&private_key_hex)
-            .map_err(|error| error.to_string())?
-            .into();
-        let data_dir: String = env
-            .get_string(&data_dir)
-            .map_err(|error| error.to_string())?
-            .into();
+        let instance_id = jstring_to_string(&mut env, &instance_id)?;
+        let config_json = jstring_to_string(&mut env, &config_json)?;
+        let private_key_hex = jstring_to_string(&mut env, &private_key_hex)?;
+        let data_dir = jstring_to_string(&mut env, &data_dir)?;
         let data_dir = Path::new(&data_dir);
         init_logging(data_dir);
-        run_coordinator(&config_json, private_key_hex, data_dir)
+        run_coordinator(&instance_id, &config_json, private_key_hex, data_dir)
     }))
     .unwrap_or_else(|_| Err("cordn coordinator panicked".into()));
 
@@ -81,33 +106,44 @@ pub extern "system" fn Java_org_cordn_coordinator_service_CordnNative_runCoordin
 
 #[no_mangle]
 pub extern "system" fn Java_org_cordn_coordinator_service_CordnNative_stopCoordinator(
-    _env: JNIEnv,
+    mut env: JNIEnv,
     _object: JObject,
+    instance_id: JString,
 ) {
-    STOP_REQUESTED.store(true, Ordering::SeqCst);
-    if let Some(stop) = STOP.lock().unwrap().take() {
-        let _ = stop.send(());
-    }
+    let Ok(instance_id) = jstring_to_string(&mut env, &instance_id) else { return; };
+    with_instance(&instance_id, |rt| {
+        rt.stop_requested.store(true, Ordering::SeqCst);
+        if let Some(stop) = rt.stop_tx.lock().unwrap().take() {
+            let _ = stop.send(());
+        }
+    });
 }
 
 #[no_mangle]
 pub extern "system" fn Java_org_cordn_coordinator_service_CordnNative_networkChanged(
-    _env: JNIEnv,
+    mut env: JNIEnv,
     _object: JObject,
+    instance_id: JString,
 ) {
-    NETWORK_CHANGED.store(true, Ordering::Relaxed);
+    let Ok(instance_id) = jstring_to_string(&mut env, &instance_id) else { return; };
+    with_instance(&instance_id, |rt| {
+        rt.network_changed.store(true, Ordering::Relaxed);
+    });
 }
 
 #[no_mangle]
 pub extern "system" fn Java_org_cordn_coordinator_service_CordnNative_prepareStart(
-    _env: JNIEnv,
+    mut env: JNIEnv,
     _object: JObject,
+    instance_id: JString,
 ) {
-    STOP_REQUESTED.store(false, Ordering::SeqCst);
+    let Ok(instance_id) = jstring_to_string(&mut env, &instance_id) else { return; };
+    with_instance(&instance_id, |rt| {
+        rt.stop_requested.store(false, Ordering::SeqCst);
+    });
 }
 
 fn init_logging(data_dir: &Path) {
-    // ponytail: one current-process log file; add rotation if field logs become noisy.
     LOGGING.call_once(|| {
         if let Ok(file) = std::fs::File::create(data_dir.join("cordn.log")) {
             let _ = tracing_subscriber::fmt()
@@ -119,21 +155,25 @@ fn init_logging(data_dir: &Path) {
 }
 
 fn run_coordinator(
+    instance_id: &str,
     config_json: &str,
     private_key_hex: String,
     data_dir: &Path,
 ) -> Result<(), String> {
-    if RUNNING.swap(true, Ordering::SeqCst) {
+    let already_running = with_instance(instance_id, |rt| rt.running.swap(true, Ordering::SeqCst));
+    if already_running {
         return Err("cordn coordinator is already running".into());
     }
-    struct ResetRunning;
-    impl Drop for ResetRunning {
+    struct ResetRunning<'a>(&'a str);
+    impl Drop for ResetRunning<'_> {
         fn drop(&mut self) {
-            RUNNING.store(false, Ordering::SeqCst);
-            STOP.lock().unwrap().take();
+            with_instance(self.0, |rt| {
+                rt.running.store(false, Ordering::SeqCst);
+                rt.stop_tx.lock().unwrap().take();
+            });
         }
     }
-    let _reset = ResetRunning;
+    let _reset = ResetRunning(instance_id);
 
     let config: CoordinatorConfig =
         serde_json::from_str(config_json).map_err(|error| error.to_string())?;
@@ -141,13 +181,14 @@ fn run_coordinator(
     let server_config = server_config(config, private_key_hex, data_dir);
     let status_path = data_dir.join("cordn-status.json");
     let (stop_tx, stop_rx) = oneshot::channel();
-    *STOP.lock().unwrap() = Some(stop_tx);
-    // A Stop arriving before the native thread registered its channel must win too.
-    if STOP_REQUESTED.load(Ordering::SeqCst) {
-        if let Some(stop) = STOP.lock().unwrap().take() {
-            let _ = stop.send(());
+    with_instance(instance_id, |rt| {
+        *rt.stop_tx.lock().unwrap() = Some(stop_tx);
+        if rt.stop_requested.load(Ordering::SeqCst) {
+            if let Some(stop) = rt.stop_tx.lock().unwrap().take() {
+                let _ = stop.send(());
+            }
         }
-    }
+    });
 
     let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -178,8 +219,8 @@ fn run_coordinator(
             tokio::select! {
                 result = &mut running => break result.map_err(|_| "Coordinator transport exited; local recovery may retry".to_string()),
                 _ = timer.tick() => {
-                    if NETWORK_CHANGED.swap(false, Ordering::Relaxed) { health.network_changed(); }
-                    // Atomic, fixed-size metadata snapshot, overwritten rather than accumulated.
+                    let network_changed = with_instance(instance_id, |rt| rt.network_changed.swap(false, Ordering::Relaxed));
+                    if network_changed { health.network_changed(); }
                     if let Ok(bytes) = serde_json::to_vec(&health.snapshot()) {
                         let temporary = health_path.with_extension("tmp");
                         if std::fs::write(&temporary, bytes).is_ok() {
@@ -232,9 +273,7 @@ fn server_config(
 }
 
 fn non_empty(value: Option<String>) -> Option<String> {
-    value
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
+    value.map(|value| value.trim().to_owned()).filter(|value| !value.is_empty())
 }
 
 pub(crate) struct PublishRelayListRequest {
@@ -250,130 +289,72 @@ pub(crate) struct PublishRelayListResult {
 
 pub(crate) fn publish_relay_list(req: PublishRelayListRequest) -> crate::Result<PublishRelayListResult> {
     use nostr_sdk::prelude::*;
-
     if req.relay_urls.is_empty() {
         return Err(crate::Error::InvalidConfig("at least one relay URL is required".into()));
     }
-
     let fallbacks: Vec<String> = vec![
-        "wss://purplepag.es".into(),
-        "wss://relay.damus.io".into(),
-        "wss://relay.primal.net".into(),
-        "wss://nos.lol".into(),
-        "wss://relay.nostr.net".into(),
+        "wss://purplepag.es".into(), "wss://relay.damus.io".into(),
+        "wss://relay.primal.net".into(), "wss://nos.lol".into(), "wss://relay.nostr.net".into(),
     ];
+    let mut all_targets: Vec<String> = req.relay_urls.iter().chain(fallbacks.iter())
+        .map(|u| u.trim().trim_end_matches('/').to_owned()).filter(|u| !u.is_empty()).collect();
+    all_targets.sort(); all_targets.dedup();
 
-    let mut all_targets: Vec<String> = req
-        .relay_urls
-        .iter()
-        .chain(fallbacks.iter())
-        .map(|u| u.trim().trim_end_matches('/').to_owned())
-        .filter(|u| !u.is_empty())
-        .collect();
-    all_targets.sort();
-    all_targets.dedup();
-
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()
         .map_err(|e| crate::Error::InvalidConfig(format!("tokio runtime: {e}")))?;
-
     rt.block_on(async {
         let publish_future = async {
             let secret_key = SecretKey::from_hex(&req.private_key_hex)
                 .map_err(|e| crate::Error::InvalidConfig(format!("invalid private key: {e}")))?;
             let keys = Keys::new(secret_key);
             let client = nostr_sdk::Client::new(keys);
-
-            for url in &all_targets {
-                let _ = client.add_relay(url.as_str()).await;
-            }
+            for url in &all_targets { let _ = client.add_relay(url.as_str()).await; }
             client.connect().await;
-            client
-                .wait_for_connection(std::time::Duration::from_secs(10))
-                .await;
+            client.wait_for_connection(std::time::Duration::from_secs(10)).await;
             let connected = client.relays().await.values().any(|r| r.is_connected());
             if !connected {
                 client.disconnect().await;
-                return Err(crate::Error::InvalidConfig(
-                    "could not connect to any relay (check network/relay URLs)".into(),
-                ));
+                return Err(crate::Error::InvalidConfig("could not connect to any relay (check network/relay URLs)".into()));
             }
-
-            let tags: Vec<Tag> = req
-                .relay_urls
-                .iter()
-                .filter_map(|url| {
-                    let trimmed = url.trim().trim_end_matches('/');
-                    Tag::parse(["r", trimmed]).ok()
-                })
-                .collect();
-
+            let tags: Vec<Tag> = req.relay_urls.iter().filter_map(|url| {
+                let trimmed = url.trim().trim_end_matches('/'); Tag::parse(["r", trimmed]).ok()
+            }).collect();
             let builder = EventBuilder::new(Kind::Custom(10002), "").tags(tags);
-            let result = client
-                .send_event_builder_to(all_targets.clone(), builder)
-                .await;
+            let result = client.send_event_builder_to(all_targets.clone(), builder).await;
             client.disconnect().await;
-
             match result {
                 Ok(output) => {
-                    let failed_urls: std::collections::HashSet<String> = output
-                        .failed
-                        .keys()
-                        .map(|url| url.to_string().trim_end_matches('/').to_owned())
-                        .collect();
-                    let sent = all_targets
-                        .iter()
-                        .filter(|t| !failed_urls.contains(t.as_str()))
-                        .count();
+                    let failed_urls: std::collections::HashSet<String> = output.failed.keys()
+                        .map(|url| url.to_string().trim_end_matches('/').to_owned()).collect();
+                    let sent = all_targets.iter().filter(|t| !failed_urls.contains(t.as_str())).count();
                     let failed = failed_urls.len();
-                    if sent == 0 {
-                        return Err(crate::Error::InvalidConfig(
-                            "publish failed: no relay accepted the event".into(),
-                        ));
-                    }
-                    Ok(PublishRelayListResult {
-                        sent,
-                        failed,
-                        targets: all_targets,
-                    })
+                    if sent == 0 { return Err(crate::Error::InvalidConfig("publish failed: no relay accepted the event".into())); }
+                    Ok(PublishRelayListResult { sent, failed, targets: all_targets })
                 }
                 Err(error) => Err(crate::Error::InvalidConfig(format!("publish failed: {error}"))),
             }
         };
-
         match tokio::time::timeout(std::time::Duration::from_secs(30), publish_future).await {
             Ok(result) => result,
-            Err(_) => Err(crate::Error::InvalidConfig(
-                "publish timed out after 30s (check network/relay connectivity)".into(),
-            )),
+            Err(_) => Err(crate::Error::InvalidConfig("publish timed out after 30s (check network/relay connectivity)".into())),
         }
     })
 }
 
 fn write_status(path: &Path, status: &ServiceStatus) -> Result<(), String> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| "status path has no parent".to_string())?;
+    let parent = path.parent().ok_or_else(|| "status path has no parent".to_string())?;
     std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    // The coordinator identity outlives run states; keep the last known
-    // public key on stop/error writes so the UI can still display it.
     let mut status = status.clone();
     if status.public_key.is_none() {
         if let Ok(previous) = std::fs::read(path)
             .map_err(|error| error.to_string())
-            .and_then(|bytes| {
-                serde_json::from_slice::<ServiceStatus>(&bytes).map_err(|e| e.to_string())
-            })
+            .and_then(|bytes| serde_json::from_slice::<ServiceStatus>(&bytes).map_err(|e| e.to_string()))
         {
             status.public_key = previous.public_key;
         }
     }
     let temporary = PathBuf::from(format!("{}.tmp", path.display()));
-    std::fs::write(
-        &temporary,
-        serde_json::to_vec(&status).map_err(|error| error.to_string())?,
-    )
-    .map_err(|error| error.to_string())?;
+    std::fs::write(&temporary, serde_json::to_vec(&status).map_err(|error| error.to_string())?)
+        .map_err(|error| error.to_string())?;
     std::fs::rename(temporary, path).map_err(|error| error.to_string())
 }

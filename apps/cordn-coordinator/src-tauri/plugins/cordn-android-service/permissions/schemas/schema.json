@@ -439,10 +439,166 @@
           "markdownDescription": "Denies the stop command without any pre-configured scope."
         },
         {
-          "description": "Control and inspect the local cordn coordinator service\n#### This default permission set includes:\n\n- `allow-start`\n- `allow-restart-schedule`\n- `allow-stop`\n- `allow-status`\n- `allow-config`\n- `allow-diagnostics`\n- `allow-encode-pubkey`\n- `allow-flush-data`\n- `allow-reset-identity`\n- `allow-request-battery-exemption`\n- `allow-request-notification-permission`\n- `allow-publish-relay-list`",
+          "description": "Enables the list_instances command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-instances",
+          "markdownDescription": "Enables the list_instances command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_instances command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-instances",
+          "markdownDescription": "Denies the list_instances command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the create_instance command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-create-instance",
+          "markdownDescription": "Enables the create_instance command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the create_instance command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-create-instance",
+          "markdownDescription": "Denies the create_instance command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the rename_instance command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-rename-instance",
+          "markdownDescription": "Enables the rename_instance command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the rename_instance command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-rename-instance",
+          "markdownDescription": "Denies the rename_instance command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the delete_instance command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-delete-instance",
+          "markdownDescription": "Enables the delete_instance command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the delete_instance command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-delete-instance",
+          "markdownDescription": "Denies the delete_instance command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the start_instance command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-start-instance",
+          "markdownDescription": "Enables the start_instance command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the start_instance command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-start-instance",
+          "markdownDescription": "Denies the start_instance command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the stop_instance command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-stop-instance",
+          "markdownDescription": "Enables the stop_instance command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the stop_instance command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-stop-instance",
+          "markdownDescription": "Denies the stop_instance command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the status_instance command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-status-instance",
+          "markdownDescription": "Enables the status_instance command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the status_instance command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-status-instance",
+          "markdownDescription": "Denies the status_instance command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the config_instance command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-config-instance",
+          "markdownDescription": "Enables the config_instance command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the config_instance command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-config-instance",
+          "markdownDescription": "Denies the config_instance command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the diagnostics_instance command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-diagnostics-instance",
+          "markdownDescription": "Enables the diagnostics_instance command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the diagnostics_instance command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-diagnostics-instance",
+          "markdownDescription": "Denies the diagnostics_instance command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the flush_data_instance command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-flush-data-instance",
+          "markdownDescription": "Enables the flush_data_instance command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the flush_data_instance command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-flush-data-instance",
+          "markdownDescription": "Denies the flush_data_instance command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the reset_identity_instance command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-reset-identity-instance",
+          "markdownDescription": "Enables the reset_identity_instance command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the reset_identity_instance command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-reset-identity-instance",
+          "markdownDescription": "Denies the reset_identity_instance command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the publish_relay_list_instance command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-publish-relay-list-instance",
+          "markdownDescription": "Enables the publish_relay_list_instance command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the publish_relay_list_instance command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-publish-relay-list-instance",
+          "markdownDescription": "Denies the publish_relay_list_instance command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the restart_schedule_instance command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-restart-schedule-instance",
+          "markdownDescription": "Enables the restart_schedule_instance command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the restart_schedule_instance command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-restart-schedule-instance",
+          "markdownDescription": "Denies the restart_schedule_instance command without any pre-configured scope."
+        },
+        {
+          "description": "Control and inspect the local cordn coordinator service\n#### This default permission set includes:\n\n- `allow-start`\n- `allow-restart-schedule`\n- `allow-stop`\n- `allow-status`\n- `allow-config`\n- `allow-diagnostics`\n- `allow-encode-pubkey`\n- `allow-flush-data`\n- `allow-reset-identity`\n- `allow-request-battery-exemption`\n- `allow-request-notification-permission`\n- `allow-publish-relay-list`\n- `allow-list-instances`\n- `allow-create-instance`\n- `allow-rename-instance`\n- `allow-delete-instance`\n- `allow-start-instance`\n- `allow-stop-instance`\n- `allow-status-instance`\n- `allow-config-instance`\n- `allow-diagnostics-instance`\n- `allow-flush-data-instance`\n- `allow-reset-identity-instance`\n- `allow-publish-relay-list-instance`\n- `allow-restart-schedule-instance`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Control and inspect the local cordn coordinator service\n#### This default permission set includes:\n\n- `allow-start`\n- `allow-restart-schedule`\n- `allow-stop`\n- `allow-status`\n- `allow-config`\n- `allow-diagnostics`\n- `allow-encode-pubkey`\n- `allow-flush-data`\n- `allow-reset-identity`\n- `allow-request-battery-exemption`\n- `allow-request-notification-permission`\n- `allow-publish-relay-list`"
+          "markdownDescription": "Control and inspect the local cordn coordinator service\n#### This default permission set includes:\n\n- `allow-start`\n- `allow-restart-schedule`\n- `allow-stop`\n- `allow-status`\n- `allow-config`\n- `allow-diagnostics`\n- `allow-encode-pubkey`\n- `allow-flush-data`\n- `allow-reset-identity`\n- `allow-request-battery-exemption`\n- `allow-request-notification-permission`\n- `allow-publish-relay-list`\n- `allow-list-instances`\n- `allow-create-instance`\n- `allow-rename-instance`\n- `allow-delete-instance`\n- `allow-start-instance`\n- `allow-stop-instance`\n- `allow-status-instance`\n- `allow-config-instance`\n- `allow-diagnostics-instance`\n- `allow-flush-data-instance`\n- `allow-reset-identity-instance`\n- `allow-publish-relay-list-instance`\n- `allow-restart-schedule-instance`"
         }
       ]
     }
