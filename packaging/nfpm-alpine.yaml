@@ -8,7 +8,7 @@ maintainer: "Todd Smith <toddsmith456@users.noreply.github.com>"
 description: |
   Native Rust MLS delivery coordinator (ContextVM/MCP server over Nostr).
   Static musl build with OpenRC service scripts for Alpine Linux and postmarketOS.
-vendor: "Todd's Cordn Coordinator"
+vendor: "Todd Smith"
 homepage: "https://github.com/toddsmith456/Todd-s-Cordn-Coordinator-"
 license: "MIT"
 

@@ -30,7 +30,7 @@ release = next((r for r in releases if r['tag_name'] == tag), None)
 if release is None:
     release = request(api + '/releases', json.dumps({
         'tag_name': tag,
-        'name': 'Todd’s Cordn Coordinator ' + tag.removeprefix('android-v'),
+        'name': 'Todd’s Todd's Coordinator ' + tag.removeprefix('android-v'),
         'body': Path('docs/android-release-notes.md').read_text(),
         'draft': False,
         'prerelease': '-' in tag.removeprefix('android-v'),

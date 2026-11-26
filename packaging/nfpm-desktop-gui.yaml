@@ -6,9 +6,9 @@ section: "net"
 priority: "optional"
 maintainer: "Todd Smith <toddsmith456@users.noreply.github.com>"
 description: |
-  Cordn Coordinator Desktop GUI — run your own private MLS delivery coordinator
+  Todd's Coordinator Desktop GUI — run your own private MLS delivery coordinator
   over Nostr relays.
-vendor: "Todd's Cordn Coordinator"
+vendor: "Todd Smith"
 homepage: "https://github.com/toddsmith456/Todd-s-Cordn-Coordinator-"
 license: "MIT"
 

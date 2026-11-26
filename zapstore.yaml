@@ -1,6 +1,6 @@
-name: Cordn Coordinator
+name: Todd's Coordinator
 repository: https://github.com/Cordn-msg/cordn-rs
-summary: Run your own Cordn coordinator from your pocket — MLS key packages, welcomes, and group message delivery as an Android app.
+summary: Run your own Todd's Coordinator from your pocket — MLS key packages, welcomes, and group message delivery as an Android app.
 description: |
   The open-source Cordn MLS delivery coordinator as an Android app. Runs as a
   foreground service: publishes your coordinator's Nostr identity (npub /

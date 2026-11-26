@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
   <id>com.toddsmith456.cordn.coordinator</id>
-  <name>Cordn Coordinator</name>
+  <name>Todd's Coordinator</name>
   <summary>Run your own Cordn MLS delivery coordinator</summary>
   <metadata_license>MIT</metadata_license>
   <project_license>MIT</project_license>

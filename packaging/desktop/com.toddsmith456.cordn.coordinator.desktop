@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=Cordn Coordinator
+Name=Todd's Coordinator
 Comment=Run your own Cordn MLS delivery coordinator
 Exec=cordn-coordinator
 Icon=com.toddsmith456.cordn.coordinator

@@ -225,7 +225,7 @@
 
 	async function shareLink() {
 		try {
-			await navigator.share({ title: 'Cordn coordinator', url: shareUrl });
+			await navigator.share({ title: 'Todd's Coordinator', url: shareUrl });
 		} catch (cause) {
 			error = message(cause);
 		}
@@ -346,7 +346,7 @@
 </script>
 
 <svelte:head>
-	<title>Cordn Coordinator</title>
+	<title>Todd's Coordinator</title>
 	<meta
 		name="description"
 		content="Run a private cordn MLS delivery coordinator from this Android device"

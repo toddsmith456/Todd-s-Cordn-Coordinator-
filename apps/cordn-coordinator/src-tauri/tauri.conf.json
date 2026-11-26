@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Cordn Coordinator",
+  "productName": "Todd's Coordinator",
   "mainBinaryName": "cordn-coordinator",
-  "version": "0.5.13-beta.1",
+  "version": "0.5.13-beta.2",
   "identifier": "com.toddsmith456.cordn.coordinator",
   "build": {
     "frontendDist": "../build",
@@ -13,7 +13,7 @@
   "app": {
     "windows": [
       {
-        "title": "Cordn Coordinator",
+        "title": "Todd's Coordinator",
         "width": 480,
         "height": 760,
         "resizable": true,

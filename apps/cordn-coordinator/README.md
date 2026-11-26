@@ -1,4 +1,4 @@
-# Cordn Coordinator for Android
+# Todd's Coordinator for Android
 
 A SvelteKit/Tauri shell that runs the existing Rust cordn server in an Android
 foreground service.

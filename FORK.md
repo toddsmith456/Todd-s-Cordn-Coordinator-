@@ -1,4 +1,4 @@
-# Todd’s Cordn Coordinator fork
+# Todd’s Todd's Coordinator fork
 
 Source: https://github.com/Cordn-msg/cordn-rs
 Base commit: 9aff92835f721c0de66faeaff1d0b56b4ee67767
