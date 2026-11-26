@@ -688,7 +688,7 @@ dependencies = [
 
 [[package]]
 name = "cordn-coordinator-app"
-version = "0.5.13-beta.3"
+version = "0.5.13-beta.4"
 dependencies = [
  "tauri",
  "tauri-build",

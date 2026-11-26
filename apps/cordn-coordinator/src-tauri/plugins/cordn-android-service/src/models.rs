@@ -4,7 +4,7 @@ pub const MAX_INSTANCES: usize = 5;
 pub const DEFAULT_INSTANCE_ID: &str = "default";
 pub const DEFAULT_INSTANCE_NAME: &str = "Coordinator 1";
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct InstanceInfo {
     pub id: String,
