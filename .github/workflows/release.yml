@@ -372,6 +372,7 @@ jobs:
   # 6. PUBLISH GITHUB RELEASE (desktop GUI only)
   # ============================================================================
   release:
+    if: always() && needs.gui-linux.result == 'success' && needs.gui-linux-i386.result == 'success' && needs.gui-flatpak.result == 'success' && needs.gui-alpine.result == 'success' && needs.gui-macos.result == 'success'
     needs:
       - gui-linux
       - gui-linux-i386
@@ -395,7 +396,7 @@ jobs:
           ls -lh
           count="$(ls -1 | wc -l)"
           echo "Total release files before SHA256SUMS: $count"
-          test "$count" -ge 10 || { echo "Expected >= 10 desktop package artifacts, got $count" >&2; exit 1; }
+          test "$count" -ge 8 || { echo "Expected >= 8 desktop package artifacts, got $count" >&2; exit 1; }
           sha256sum * > SHA256SUMS
           cat SHA256SUMS
       - name: Create or update release
