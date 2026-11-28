@@ -478,12 +478,16 @@
 		<div class:running={status.state === 'running' && !statusUnavailable && (healthLabel.startsWith('Relay connected') || healthLabel.startsWith('Partially connected'))} class="status-dot" title={status.state}></div>
 	</header>
 
-	<section class="instances-panel" aria-label="Coordinators">
+	<details class="panel instances-panel">
+		<summary>
+			<span>
+				<strong>Coordinators</strong>
+				<small>{instances.find((item) => item.instance.id === selectedId)?.instance.name ?? 'Select a coordinator'} · {instances.length} / {MAX_INSTANCES}</small>
+				{#if instancesError}<small class="instances-warning" role="alert">{instancesError}</small>{/if}
+			</span>
+		</summary>
+		<div class="panel-content">
 		<div class="instances-head">
-			<div>
-				<p class="label">Coordinators</p>
-				<strong>{instances.length} / {MAX_INSTANCES}</strong>
-			</div>
 			<div class="instances-add">
 				<input type="text" placeholder="New coordinator name" bind:value={newInstanceName} maxlength="64" />
 				<button type="button" class="small-btn" onclick={createNewInstance} disabled={instances.length >= MAX_INSTANCES}>Add</button>
@@ -510,9 +514,9 @@
 				</div>
 			{/each}
 		</div>
-		{#if instancesError}<p class="error">{instancesError}</p>{/if}
 		<p class="status-copy">Each coordinator has its own identity, relays, and local data. You can run up to {MAX_INSTANCES} at once.</p>
-	</section>
+		</div>
+	</details>
 
 	<section class="status-card" aria-live="polite">
 		<div class="status-heading">
@@ -909,10 +913,11 @@
 	.status-dot { width: 9px; height: 9px; margin-left: auto; border-radius: 50%; background: #66706a; box-shadow: 0 0 0 5px #66706a18; }
 	.status-dot.running { background: #70e49b; box-shadow: 0 0 0 5px #70e49b18, 0 0 16px #70e49b80; }
 	.status-card, .panel, .instances-panel { margin-bottom: 12px; border: 1px solid #202b24; border-radius: 16px; background: #101512e6; }
-	.instances-panel { padding: 16px; }
 	.instances-head { display: flex; justify-content: space-between; gap: 12px; align-items: end; flex-wrap: wrap; margin-bottom: 12px; }
-	.instances-add { display: flex; gap: 8px; align-items: center; }
-	.instances-add input { min-width: 220px; }
+	.instances-add { display: flex; gap: 8px; align-items: center; width: 100%; }
+	.instances-add input { min-width: 0; flex: 1; }
+	.instances-panel > summary span { min-width: 0; overflow-wrap: anywhere; }
+	.instances-panel > summary .instances-warning { color: #ffb4b6; }
 	.instances-list { display: flex; flex-direction: column; gap: 8px; }
 	.instance-row { display: flex; gap: 8px; align-items: stretch; border: 1px solid #233028; border-radius: 12px; overflow: hidden; }
 	.instance-row.selected { border-color: #70e49b66; background: #132018; }
