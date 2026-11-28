@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import androidx.core.content.ContextCompat
 import android.os.Build
 import android.util.AtomicFile
 import java.io.File
@@ -30,7 +31,7 @@ internal object RestartSchedule {
         save(context, InstanceRegistry.defaultInstanceId(context.noBackupFilesDir), enabled, times)
     }
 
-    fun save(context: Context, instanceId: String, enabled: Boolean, times: List<String>) {
+    fun save(context: Context, instanceId: String, enabled: Boolean, times: List<String>, hourly: Boolean = false) {
         require(times.size in 1..2) { "Choose one or two restart times" }
         require(times.all { it.matches(Regex("([01][0-9]|2[0-3]):[0-5][0-9]")) }) { "Invalid restart time" }
         require(times.distinct().size == times.size) { "Restart times must be different" }
@@ -40,7 +41,7 @@ internal object RestartSchedule {
             val gap = kotlin.math.abs(minutes[0] - minutes[1])
             require(minOf(gap, 1440 - gap) >= 15) { "Keep restarts at least 15 minutes apart" }
         }
-        val data = JSONObject().put("enabled", enabled).put("times", JSONArray(times))
+        val data = JSONObject().put("enabled", enabled).put("times", JSONArray(times)).put("hourly", hourly)
         val f = file(context, instanceId)
         f.baseFile.parentFile?.mkdirs()
         val output = f.startWrite()
@@ -60,6 +61,13 @@ internal object RestartSchedule {
             if (timeInMillis <= now) add(Calendar.DAY_OF_YEAR, 1)
         }
         return date.timeInMillis
+    }
+
+    fun nextHour(now: Long = System.currentTimeMillis()): Long = Calendar.getInstance().run {
+        timeInMillis = now
+        set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        add(Calendar.HOUR_OF_DAY, 1)
+        timeInMillis
     }
 
     private fun requestCode(instanceId: String, index: Int): Int {
@@ -89,7 +97,9 @@ internal object RestartSchedule {
         val data = read(context, instanceId)
         if (!data.optBoolean("enabled") || !allowed(context)) return
         val times = data.getJSONArray("times")
-        for (index in 0 until times.length()) {
+        if (data.optBoolean("hourly", false)) {
+            manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, nextHour(), pending(context, instanceId, 0))
+        } else for (index in 0 until times.length()) {
             manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, nextTime(times.getString(index)), pending(context, instanceId, index))
         }
     }
@@ -101,7 +111,10 @@ internal object RestartSchedule {
         data.put("exactAlarmAllowed", allowed(context))
         val times = data.getJSONArray("times")
         val next = if (data.optBoolean("enabled") && allowed(context))
-            (0 until times.length()).minOf { nextTime(times.getString(it)) } else null
+            if (data.optBoolean("hourly", false)) nextHour() else (0 until times.length()).minOf { nextTime(times.getString(it)) } else null
+        val policy = ReliabilitySettings.read(context.noBackupFilesDir, instanceId)
+        data.put("recoveryMode", policy.optString("mode", "balanced"))
+        data.put("resumeAfterBoot", policy.optBoolean("resumeAfterBoot", false))
         return data.put("nextAlarm", next ?: JSONObject.NULL)
     }
 }
@@ -109,5 +122,17 @@ internal object RestartSchedule {
 class RestartScheduleReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         runCatching { RestartSchedule.schedule(context) }
+        if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
+            val shouldResume = runCatching {
+                InstanceRegistry.list(context.noBackupFilesDir).any { item ->
+                    val id = item.getString("id")
+                    ReliabilitySettings.read(context.noBackupFilesDir, id).optBoolean("resumeAfterBoot", false) &&
+                        ReliabilitySettings.wanted(context.noBackupFilesDir, id)
+                }
+            }.getOrDefault(false)
+            if (shouldResume) runCatching {
+                ContextCompat.startForegroundService(context, Intent(context, CordnService::class.java).setAction(CordnService.ACTION_BOOT_RESUME))
+            }
+        }
     }
 }

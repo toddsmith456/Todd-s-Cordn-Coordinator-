@@ -35,7 +35,7 @@ internal class IdentityStore(
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(
                 Cipher.DECRYPT_MODE,
-                key(),
+                existingKey(),
                 GCMParameterSpec(128, Base64.decode(iv, Base64.NO_WRAP)),
             )
             return String(cipher.doFinal(Base64.decode(ciphertext, Base64.NO_WRAP)), Charsets.UTF_8)
@@ -55,11 +55,15 @@ internal class IdentityStore(
     }
 
     private fun read(): Pair<String, String>? {
-        if (!file.baseFile.exists()) return null
-        return runCatching {
+        // AtomicFile may have a recoverable backup even when the base is absent.
+        val backup = File(file.baseFile.path + ".bak")
+        if (!file.baseFile.exists() && !backup.exists()) return null
+        return try {
             val json = JSONObject(file.openRead().bufferedReader().use { it.readText() })
             json.getString("ciphertext") to json.getString("iv")
-        }.getOrNull()
+        } catch (error: Exception) {
+            throw IllegalStateException("Stored identity is unreadable; it was preserved. Do not reset without a backup.", error)
+        }
     }
 
     private fun store(secret: String) {
@@ -76,6 +80,12 @@ internal class IdentityStore(
             file.failWrite(output)
             throw error
         }
+    }
+
+    private fun existingKey(): SecretKey {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        return keyStore.getKey(keyAlias, null) as? SecretKey
+            ?: throw IllegalStateException("Stored identity key is unavailable; identity was preserved")
     }
 
     private fun key(): SecretKey {

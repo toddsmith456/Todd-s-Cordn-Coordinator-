@@ -25,26 +25,8 @@ use cordn_core::{
 
 use crate::config::{AbuseProtectionConfig, RateLimitConfig};
 
-/// How often the streaming loops poll the sink's `is_active` flag so a client
-/// disconnect (which flips the writer inactive) breaks a blocked `recv`.
-///
-/// ponytail: poll-based because the rs-sdk `OpenStreamWriter` exposes no
-/// signal / `closed()` future — only the `is_active()` `AtomicBool`. The flag
-/// flips to false on: (a) an explicit client `abort` control frame (the
-/// transport routes it to `writer.abort()`), (b) the SDK's writer keepalive
-/// aborting after a probe timeout when the client goes silent (CEP-41
-/// silent-disconnect fix — armed automatically from `OpenStreamConfig`'s
-/// `idle_timeout_ms`/`probe_timeout_ms`, which `main.rs` leaves at their
-/// 30s/20s defaults), or (c) this tool's own close/abort. This poll observes
-/// that flip within `idle + probe + SINK_ACTIVE_POLL`.
-///
-/// `write()` is NOT a liveness signal: Nostr publishes to the relay, which
-/// accepts the frame whether or not the client is connected, so without the SDK
-/// keepalive a silently-dropped client would leave this loop (and the
-/// coordinator subscriber + unbounded channel) leaked indefinitely. Full
-/// transport teardown cancels the rmcp tool task, dropping the loop without
-/// needing to observe the flag. Swap the poll for a signal future if the rs-sdk
-/// ever adds one.
+/// Compatibility fallback for custom sinks without a close signal. The production
+/// OpenStreamWriter sink overrides `closed()` with an event-driven notification.
 const SINK_ACTIVE_POLL: std::time::Duration = std::time::Duration::from_millis(25);
 
 /// Milliseconds-since-epoch clock, shared with the coordinator so timestamps
@@ -62,6 +44,10 @@ pub trait MessageSink: Send + Sync {
     /// no longer active.
     async fn write(&self, msg: String) -> bool;
     fn is_active(&self) -> bool;
+    /// Default for external/test sinks without a close signal; production writer overrides this.
+    async fn closed(&self) {
+        while self.is_active() { tokio::time::sleep(SINK_ACTIVE_POLL).await; }
+    }
     async fn close(&self);
 }
 
@@ -481,11 +467,7 @@ impl CoordinatorAdapter {
                         break;
                     }
                 }
-                _ = tokio::time::sleep(SINK_ACTIVE_POLL) => {
-                    if !sink.is_active() {
-                        break;
-                    }
-                }
+                _ = sink.closed() => { break; }
             }
         }
         if sink.is_active() {

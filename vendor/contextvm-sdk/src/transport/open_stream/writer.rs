@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
 use futures::future::BoxFuture;
-use tokio::sync::Mutex;
+use tokio::sync::{watch, Mutex};
 
 use super::frame::OpenStreamFrame;
 use super::session::{KeepaliveAction, PublishFrame};
@@ -108,6 +108,7 @@ struct WriterInner {
     /// Liveness flag, **outside** the op lock so `abort` never blocks on a stuck
     /// write. `false` once closed or aborted.
     active: AtomicBool,
+    closed: watch::Sender<bool>,
     /// Whether the lazy `start` frame has been published.
     started: AtomicBool,
     /// Sender-side keepalive config + state. Inert when `idle_timeout` is `None`.
@@ -136,6 +137,7 @@ impl OpenStreamWriter {
                 progress: AtomicU64::new(0),
                 control_nonce: AtomicU64::new(0),
                 active: AtomicBool::new(true),
+                closed: watch::channel(false).0,
                 started: AtomicBool::new(false),
                 idle_timeout: options.idle_timeout,
                 probe_timeout: options.probe_timeout,
@@ -158,6 +160,14 @@ impl OpenStreamWriter {
     /// `true` for any freshly-created writer; see [`has_started`](Self::has_started).
     pub fn is_active(&self) -> bool {
         self.inner.active.load(Ordering::SeqCst)
+    }
+
+    /// Wait until close, abort, or dispose; safe even if closure races subscription.
+    pub async fn closed(&self) {
+        let mut receiver = self.inner.closed.subscribe();
+        while !*receiver.borrow_and_update() {
+            if receiver.changed().await.is_err() { break; }
+        }
     }
 
     /// Whether the writer has begun streaming by publishing its `start` frame.
@@ -352,7 +362,9 @@ impl OpenStreamWriter {
     /// becomes inert without needing to be cleared (matching `close`/`abort`,
     /// which also leave keepalive state untouched once terminal).
     pub fn dispose(&self) {
-        let _ = self.inner.active.swap(false, Ordering::SeqCst);
+        if self.inner.active.swap(false, Ordering::SeqCst) {
+            self.inner.closed.send_replace(true);
+        }
     }
 
     /// Close the stream gracefully. Declares `lastChunkIndex` iff any chunks were
@@ -365,6 +377,7 @@ impl OpenStreamWriter {
         if !self.inner.active.swap(false, Ordering::SeqCst) {
             return Ok(());
         }
+        self.inner.closed.send_replace(true);
         let last_chunk_index = if op.chunk_index > 0 {
             Some(op.chunk_index - 1)
         } else {
@@ -392,6 +405,7 @@ impl OpenStreamWriter {
         if !self.inner.active.swap(false, Ordering::SeqCst) {
             return Ok(());
         }
+        self.inner.closed.send_replace(true);
         let notification = OpenStreamFrame::Abort {
             reason: reason.clone(),
         }
@@ -415,6 +429,41 @@ mod tests {
     use crate::Error;
     use nostr_sdk::prelude::EventId;
     use std::sync::Mutex as StdMutex;
+
+    #[tokio::test]
+    async fn closed_waiters_are_not_lost_before_or_after_dispose() {
+        let writer = OpenStreamWriter::new(OpenStreamWriterOptions {
+            progress_token: "test".into(),
+            content_type: None,
+            publish_frame: recording_publisher(frame_log()),
+            on_close: None,
+            on_abort: None,
+            idle_timeout: None,
+            probe_timeout: Duration::from_secs(1),
+        });
+        let waiter = writer.clone();
+        let task = tokio::spawn(async move { waiter.closed().await });
+        writer.dispose();
+        tokio::time::timeout(Duration::from_secs(1), task).await.unwrap().unwrap();
+        tokio::time::timeout(Duration::from_secs(1), writer.closed()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn closed_waiters_wake_for_close_and_abort() {
+        for abort in [false, true] {
+            let writer = OpenStreamWriter::new(OpenStreamWriterOptions {
+                progress_token: "test".into(), content_type: None,
+                publish_frame: recording_publisher(frame_log()), on_close: None,
+                on_abort: None, idle_timeout: None, probe_timeout: Duration::from_secs(1),
+            });
+            let waiter = writer.clone();
+            let task = tokio::spawn(async move { waiter.closed().await });
+            if abort { writer.abort(None).await.unwrap(); }
+            else { writer.close().await.unwrap(); }
+            tokio::time::timeout(Duration::from_secs(1), task).await.unwrap().unwrap();
+            tokio::time::timeout(Duration::from_secs(1), writer.closed()).await.unwrap();
+        }
+    }
 
     type FrameLog = Arc<StdMutex<Vec<JsonRpcNotification>>>;
 

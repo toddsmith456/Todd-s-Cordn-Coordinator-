@@ -18,6 +18,8 @@
 		resetIdentityInstance,
 		publishRelayListInstance,
 		restartScheduleInstance,
+        saveReliability,
+        type RecoveryMode,
 		requestBatteryExemption,
 		requestNotificationPermission,
 		MAX_INSTANCES,
@@ -45,6 +47,12 @@
     let scheduleBusy = $state(false);
     let scheduleError = $state('');
     let scheduleSaved = $state(false);
+    let isAndroid = $state(false);
+    let recoveryMode = $state<RecoveryMode>('balanced');
+    let resumeAfterBoot = $state(false);
+    let policyBusy = $state(false);
+    let policyError = $state('');
+    let policySaved = $state(false);
 
     function selectedInstance() { return instances.find((i) => i.instance.id === selectedId) ?? instances[0] ?? null; }
 
@@ -76,7 +84,9 @@
             statusUnavailable = false;
             schedule = await restartScheduleInstance(selectedId);
             scheduleEnabled = schedule.enabled;
-            scheduleCount = String(schedule.times.length);
+            scheduleCount = schedule.hourly ? 'hourly' : String(schedule.times.length);
+            recoveryMode = schedule.recoveryMode ?? 'balanced';
+            resumeAfterBoot = schedule.resumeAfterBoot ?? false;
             firstRestart = schedule.times[0] ?? '03:00';
             secondRestart = schedule.times[1] ?? '15:00';
             scheduleError = '';
@@ -141,10 +151,18 @@
         scheduleSaved = false;
         try {
             schedule = await restartScheduleInstance(selectedId, 'save', scheduleEnabled,
-                scheduleCount === '2' ? [firstRestart, secondRestart] : [firstRestart]);
+                scheduleCount === '2' ? [firstRestart, secondRestart] : [firstRestart], scheduleCount === 'hourly');
             scheduleSaved = true;
         } catch (cause) { scheduleError = message(cause); }
         finally { scheduleBusy = false; }
+    }
+
+    async function savePolicy() {
+        if (!selectedId) return;
+        policyBusy = true; policyError = ''; policySaved = false;
+        try { schedule = await saveReliability(selectedId, recoveryMode, resumeAfterBoot); policySaved = true; }
+        catch (cause) { policyError = message(cause); }
+        finally { policyBusy = false; }
     }
 
     async function allowAlarms() {
@@ -224,11 +242,12 @@
 	);
 
 	onMount(() => {
+        isAndroid = /Android/i.test(navigator.userAgent);
 		void (async () => { await refreshInstances(); await loadSelectedInstance(); })();
-		const poll = window.setInterval(() => void refresh(), 2_000);
+		const poll = window.setInterval(() => { if (!document.hidden) void refresh(); }, 5_000);
         const focus = () => { void refreshSchedule(); };
         window.addEventListener('focus', focus);
-        const visibility = () => { if (!document.hidden) void refreshSchedule(); };
+        const visibility = () => { if (!document.hidden) { void refreshSchedule(); void refresh(); } };
         document.addEventListener('visibilitychange', visibility);
         return () => {
             window.clearInterval(poll);
@@ -242,7 +261,10 @@
 		await loadSelectedInstance();
 	}
 
+    let refreshInFlight = false;
 	async function refresh() {
+        if (refreshInFlight) return;
+        refreshInFlight = true;
 		try {
 			await refreshInstances(selectedId);
 			if (selectedId) {
@@ -252,7 +274,8 @@
 		} catch {
 			statusUnavailable = true;
 		}
-		if (diagnosticsOpen) await refreshDiagnostics();
+		try { if (diagnosticsOpen) await refreshDiagnostics(); }
+        finally { refreshInFlight = false; }
 	}
 
 	async function refreshDiagnostics() {
@@ -571,26 +594,47 @@
 		<p class="error" role="alert">{error || status.lastError}</p>
 	{/if}
 
+    {#if isAndroid}
+    <details class="panel schedule-panel">
+        <summary><span><strong>Automatic recovery</strong><small>{recoveryMode} · local checks only</small></span></summary>
+        <div class="panel-content schedule-content">
+            <label>Recovery mode
+                <select bind:value={recoveryMode} onchange={() => (policySaved = false)} disabled={policyBusy}>
+                    <option value="conservative">Conservative</option>
+                    <option value="balanced">Balanced (recommended)</option>
+                    <option value="aggressive">Aggressive</option>
+                </select>
+            </label>
+            <p class="schedule-description">Conservative recovers from a confirmed failure or sustained stall. Balanced also restarts after prolonged relay loss and failed repair. Aggressive supports an independently enabled preventive schedule below. A restart interrupts active connections.</p>
+            <label class="toggle"><input type="checkbox" bind:checked={resumeAfterBoot} onchange={() => (policySaved = false)} disabled={policyBusy} />Resume this coordinator after reboot</label>
+            <p class="schedule-description">Only coordinators left running are resumed, after unlock when Android allows. Force-stop and manual Stop are respected. Health checks are local; delivery is not verified.</p>
+            <button type="button" class="action start" onclick={savePolicy} disabled={policyBusy || !selectedId}>{policyBusy ? 'Saving…' : 'Save recovery settings'}</button>
+            {#if policySaved}<p role="status">Recovery settings saved.</p>{/if}
+            {#if policyError}<p class="inline-error" role="alert">{policyError}</p>{/if}
+        </div>
+    </details>
+    {/if}
     <details class="panel schedule-panel">
         <summary>
             <span>
                 <strong>Scheduled restarts</strong>
-                <small>{schedule?.enabled ? `${schedule.times.join(' & ')} · daily` : 'Off · a fresh connection, on your schedule'}</small>
+                <small>{schedule?.enabled ? (schedule.hourly ? 'Every hour' : `${schedule.times.join(' & ')} · daily`) : 'Off · a fresh connection, on your schedule'}</small>
             </span>
         </summary>
         <form class="panel-content schedule-content" onsubmit={saveSchedule} oninput={() => (scheduleSaved = false)}>
-            <label class="toggle"><input type="checkbox" bind:checked={scheduleEnabled} disabled={!schedule || scheduleBusy} />Enable daily restarts</label>
+            <label class="toggle"><input type="checkbox" bind:checked={scheduleEnabled} disabled={!schedule || scheduleBusy} />Enable scheduled restarts</label>
             <p class="schedule-description">Wake the phone to safely restart a running coordinator. A manual Stop is always respected. Your identity and data stay unchanged.</p>
             <fieldset class="schedule-fields" disabled={!scheduleEnabled || scheduleBusy || !schedule}>
                 <div class="frequency" role="group" aria-label="Restarts per day">
                     <button type="button" class:selected={scheduleCount === '1'} aria-pressed={scheduleCount === '1'} onclick={() => { scheduleCount = '1'; scheduleSaved = false; }}>Once daily</button>
                     <button type="button" class:selected={scheduleCount === '2'} aria-pressed={scheduleCount === '2'} onclick={() => { scheduleCount = '2'; scheduleSaved = false; }}>Twice daily</button>
+                    {#if isAndroid}<button type="button" class:selected={scheduleCount === 'hourly'} aria-pressed={scheduleCount === 'hourly'} onclick={() => { scheduleCount = 'hourly'; scheduleSaved = false; }}>Every hour</button>{/if}
                 </div>
-                <div class="row">
+                {#if scheduleCount !== 'hourly'}<div class="row">
                     <label>First restart<input type="time" bind:value={firstRestart} required /></label>
                     {#if scheduleCount === '2'}<label>Second restart<input type="time" bind:value={secondRestart} required /></label>{/if}
                 </div>
-                <small>Phone’s local time · follows time-zone changes · keep times 15+ minutes apart</small>
+                <small>Phone’s local time · follows time-zone changes · keep times 15+ minutes apart</small>{:else}<small>At the start of each local hour, only while running. This interrupts active connections and may increase battery use.</small>{/if}
             </fieldset>
             {#if schedule && !schedule.exactAlarmAllowed}
                 <div class="reliability alarm-permission">

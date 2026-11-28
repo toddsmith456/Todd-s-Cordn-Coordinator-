@@ -236,7 +236,11 @@ class CordnServicePlugin(private val activity: Activity) : Plugin(activity) {
                 times = args.times.toList()
             }
             when (op) {
-                "save" -> RestartSchedule.save(activity, instanceId, enabled, times)
+                "save" -> RestartSchedule.save(activity, instanceId, enabled, times, payloadObj?.optBoolean("hourly", false) ?: false)
+                "savePolicy" -> {
+                    require(payloadObj != null) { "Missing policy settings" }
+                    ReliabilitySettings.save(root(), instanceId, payloadObj.optString("recoveryMode", "balanced"), payloadObj.optBoolean("resumeAfterBoot", false))
+                }
                 "permission" -> if (android.os.Build.VERSION.SDK_INT >= 31 && !RestartSchedule.allowed(activity)) {
                     activity.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${activity.packageName}")))
                 }

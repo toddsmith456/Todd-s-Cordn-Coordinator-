@@ -87,9 +87,13 @@ export function resetIdentityInstance(instanceId: string): Promise<ServiceStatus
 export function publishRelayListInstance(instanceId: string): Promise<PublishRelayListResult> {
 	return invoke(`${plugin}|publish_relay_list_instance`, { payload: { instanceId } });
 }
-export function restartScheduleInstance(instanceId: string, operation: 'get' | 'save' | 'permission' = 'get', enabled = false, times = ['03:00']): Promise<RestartSchedule> {
-	return invoke(`${plugin}|restart_schedule_instance`, { instanceId, payload: { operation, enabled, times } });
+export function restartScheduleInstance(instanceId: string, operation: 'get' | 'save' | 'permission' = 'get', enabled = false, times = ['03:00'], hourly = false): Promise<RestartSchedule> {
+	return invoke(`${plugin}|restart_schedule_instance`, { instanceId, payload: { operation, enabled, times, hourly } });
 }
+export function saveReliability(instanceId: string, recoveryMode: RecoveryMode, resumeAfterBoot: boolean): Promise<RestartSchedule> {
+	return invoke(`${plugin}|restart_schedule_instance`, { instanceId, payload: { operation: 'savePolicy', recoveryMode, resumeAfterBoot } });
+}
+export type RecoveryMode = 'conservative' | 'balanced' | 'aggressive';
 
 // Legacy compat (default instance) - kept so older UI code compiles during transition
 export function start(config: CoordinatorConfig, privateKeyHex?: string): Promise<ServiceStatus> { return invoke(`${plugin}|start`, { payload: { config, privateKeyHex: privateKeyHex || null } }); }
@@ -102,7 +106,7 @@ export function flushData(): Promise<ServiceStatus> { return invoke(`${plugin}|f
 export function resetIdentity(): Promise<ServiceStatus> { return invoke(`${plugin}|reset_identity`); }
 export function requestBatteryExemption(): Promise<void> { return invoke(`${plugin}|request_battery_exemption`); }
 export function requestNotificationPermission(): Promise<void> { return invoke(`${plugin}|request_notification_permission`); }
-export type RestartSchedule = { enabled: boolean; times: string[]; exactAlarmAllowed: boolean; nextAlarm: number | null };
+export type RestartSchedule = { enabled: boolean; times: string[]; hourly?: boolean; recoveryMode?: RecoveryMode; resumeAfterBoot?: boolean; exactAlarmAllowed: boolean; nextAlarm: number | null };
 export function restartSchedule(operation: 'get' | 'save' | 'permission' = 'get', enabled = false, times = ['03:00']): Promise<RestartSchedule> { return invoke(`${plugin}|restart_schedule`, { payload: { operation, enabled, times } }); }
 export type PublishRelayListResult = { sent: number; failed: number; targets: string[] };
 export function publishRelayList(): Promise<PublishRelayListResult> { return invoke(`${plugin}|publish_relay_list`); }

@@ -34,4 +34,12 @@ class RestartScheduleTest {
             assertEquals(25L * 60 * 60 * 1000, RestartSchedule.nextTime("15:00", fall) - fall)
         } finally { TimeZone.setDefault(previous) }
     }
+    @Test fun nextHourlyIsStrictlyAfterCurrentHour() {
+        val previous = TimeZone.getDefault()
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
+            assertEquals(at(2026, 11, 5, 16, 0), RestartSchedule.nextHour(at(2026, 11, 5, 15, 0)))
+            assertEquals(at(2026, 11, 6, 0, 0), RestartSchedule.nextHour(at(2026, 11, 5, 23, 59)))
+        } finally { TimeZone.setDefault(previous) }
+    }
 }

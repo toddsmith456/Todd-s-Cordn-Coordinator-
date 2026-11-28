@@ -30,6 +30,11 @@ internal class CordnService : Service() {
         var restartRequested: Boolean = false,
         var restartWakeLock: PowerManager.WakeLock? = null,
         var notificationText: String = "Starting coordinator…",
+        var generation: Long = 0,
+        var noRelaySince: Long = 0,
+        var stalledSince: Long = 0,
+        var repairAt: Long = 0,
+        var lastAutomaticRestart: Long = 0,
     )
 
     private val native = CordnNative()
@@ -37,9 +42,17 @@ internal class CordnService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private var networkCallback: android.net.ConnectivityManager.NetworkCallback? = null
     private var lastNetwork: android.net.Network? = null
+    private var networkValidated = false
+    private var previousElapsed = android.os.SystemClock.elapsedRealtime()
+    private var previousUptime = android.os.SystemClock.uptimeMillis()
 
     private val healthTick = object : Runnable {
         override fun run() {
+            val elapsed = android.os.SystemClock.elapsedRealtime()
+            val uptime = android.os.SystemClock.uptimeMillis()
+            val slept = (elapsed - previousElapsed) - (uptime - previousUptime) > 30_000L
+            previousElapsed = elapsed; previousUptime = uptime
+            for (worker in workers.values) supervise(worker, uptime, slept)
             updateNotification()
             handler.postDelayed(this, 30_000L)
         }
@@ -56,17 +69,20 @@ internal class CordnService : Service() {
                 if (caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
                     caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
                     handler.post {
-                        if (lastNetwork != network) {
+                        if (lastNetwork != network || !networkValidated) {
                             lastNetwork = network
+                            networkValidated = true
                             for ((id, w) in workers) {
                                 if (w.running.get() && !w.recoveryPolicy.stopped) native.networkChanged(id)
                             }
                         }
                     }
+                } else {
+                    handler.post { if (lastNetwork == network) networkValidated = false }
                 }
             }
             override fun onLost(network: android.net.Network) {
-                handler.post { if (lastNetwork == network) lastNetwork = null }
+                handler.post { if (lastNetwork == network) { lastNetwork = null; networkValidated = false } }
             }
         }
         runCatching { manager.registerDefaultNetworkCallback(callback); networkCallback = callback }
@@ -76,7 +92,25 @@ internal class CordnService : Service() {
         InstanceRegistry.ensure(noBackupFilesDir)
         promoteToForeground()
 
-        val instanceId = intent?.getStringExtra(EXTRA_INSTANCE_ID)?.takeIf { it.isNotBlank() }
+        if (intent == null || intent.action == ACTION_BOOT_RESUME) {
+            val boot = intent?.action == ACTION_BOOT_RESUME
+            for (item in InstanceRegistry.list(noBackupFilesDir)) {
+                val id = item.optString("id")
+                val restore = runCatching {
+                    ReliabilitySettings.wanted(noBackupFilesDir, id) &&
+                        (!boot || ReliabilitySettings.read(noBackupFilesDir, id).optBoolean("resumeAfterBoot", false))
+                }.getOrDefault(false)
+                if (restore) {
+                    val w = workers.getOrPut(id) { Worker(id) }
+                    w.recoveryPolicy.stopped = false
+                    startWorker(w, null)
+                }
+            }
+            if (!anyRunning()) { maybeStopService(); return START_NOT_STICKY }
+            return START_STICKY
+        }
+
+        val instanceId = intent.getStringExtra(EXTRA_INSTANCE_ID)?.takeIf { it.isNotBlank() }
             ?: InstanceRegistry.defaultInstanceId(noBackupFilesDir)
 
         if (intent?.action == ACTION_RESTART) {
@@ -96,8 +130,11 @@ internal class CordnService : Service() {
         }
 
         if (intent?.action == ACTION_STOP) {
-            val targetIds = if (intent.hasExtra(EXTRA_INSTANCE_ID)) listOf(instanceId) else workers.keys().toList()
+            val targetIds = if (intent.hasExtra(EXTRA_INSTANCE_ID)) listOf(instanceId)
+                else InstanceRegistry.list(noBackupFilesDir).map { it.getString("id") }
             for (id in targetIds) {
+                // Durable stop is written before canceling any pending recovery.
+                runCatching { ReliabilitySettings.setWanted(noBackupFilesDir, id, false) }
                 val w = workers[id] ?: continue
                 w.recoveryPolicy.stopped = true
                 w.recoveryPending = false
@@ -122,6 +159,8 @@ internal class CordnService : Service() {
         worker.recoveryPolicy.stopped = false
         worker.recoveryPending = false
         worker.recoveryPolicy.reset()
+        try { ReliabilitySettings.setWanted(noBackupFilesDir, instanceId, true) }
+        catch (e: Exception) { writeStatus(instanceId, "error", "Could not save running state"); maybeStopService(); return START_NOT_STICKY }
         startWorker(worker, intent)
         return START_STICKY
     }
@@ -129,6 +168,9 @@ internal class CordnService : Service() {
     private fun startWorker(worker: Worker, intent: Intent?) {
         val instanceId = worker.instanceId
         if (!worker.running.compareAndSet(false, true)) return
+        worker.generation++
+        worker.noRelaySince = 0; worker.stalledSince = 0; worker.repairAt = 0
+        worker.notificationText = "Starting coordinator…"
         try {
             val instanceDir = InstanceRegistry.instanceDir(noBackupFilesDir, instanceId)
             instanceDir.mkdirs()
@@ -191,12 +233,61 @@ internal class CordnService : Service() {
     }
 
     private fun scheduleHealthyReset(worker: Worker) {
+        val generation = worker.generation
         val runnable = Runnable {
-            if (worker.running.get() && !worker.recoveryPending && !worker.recoveryPolicy.stopped) {
+            val health = CoordinatorHealth.read(InstanceRegistry.instanceDir(noBackupFilesDir, worker.instanceId))
+            if (worker.generation == generation && worker.running.get() && !worker.recoveryPending &&
+                !worker.recoveryPolicy.stopped && health != null && health.optLong("loopAgeMs", Long.MAX_VALUE) < 60_000L &&
+                health.optInt("connectedRelays") > 0) {
                 worker.recoveryPolicy.reset()
             }
         }
         handler.postDelayed(runnable, HEALTHY_RESET_MS)
+    }
+
+    // Only local passive evidence; silence from clients is never a failure.
+    private fun supervise(worker: Worker, now: Long, slept: Boolean) {
+        if (!worker.running.get() || worker.recoveryPolicy.stopped || worker.restartRequested) return
+        if (slept) { worker.noRelaySince = 0; worker.stalledSince = 0; worker.repairAt = 0; return }
+        val health = CoordinatorHealth.read(InstanceRegistry.instanceDir(noBackupFilesDir, worker.instanceId)) ?: return
+        val snapshotAge = System.currentTimeMillis() - health.optLong("updatedAt", 0)
+        if (snapshotAge !in 0..90_000L) return // absent/stale alone is not proof of a stuck runtime
+        val mode = runCatching { ReliabilitySettings.read(noBackupFilesDir, worker.instanceId).optString("mode", "balanced") }.getOrDefault("conservative")
+        val stalled = health.optLong("loopAgeMs", 0) > 180_000L || health.optBoolean("criticalTaskFailed")
+        if (stalled) {
+            if (worker.stalledSince == 0L) worker.stalledSince = now
+        } else worker.stalledSince = 0
+        val noRelays = networkValidated && health.optInt("totalRelays") > 0 && health.optInt("connectedRelays") == 0
+        if (noRelays) {
+            if (worker.noRelaySince == 0L) worker.noRelaySince = now
+            if (now - worker.noRelaySince >= 120_000L && worker.repairAt == 0L) {
+                native.networkChanged(worker.instanceId)
+                worker.repairAt = now
+            }
+        } else { worker.noRelaySince = 0; worker.repairAt = 0 }
+        worker.notificationText = when {
+            !networkValidated -> "Waiting for network — delivery unverified"
+            stalled -> "Coordinator degraded — delivery unverified"
+            noRelays -> "Waiting for relay connection"
+            else -> "Coordinator running — delivery unverified"
+        }
+        val dueStall = worker.stalledSince != 0L && now - worker.stalledSince >= 180_000L
+        val dueRelay = mode != "conservative" && worker.repairAt != 0L && now - worker.repairAt >= 120_000L
+        val cooledDown = worker.lastAutomaticRestart == 0L || now - worker.lastAutomaticRestart >= 600_000L
+        if ((dueStall || dueRelay) && cooledDown) {
+            worker.lastAutomaticRestart = now
+            worker.restartRequested = true
+            worker.notificationText = "Recovering coordinator…"
+            writeStatus(worker.instanceId, "stopping")
+            native.stopCoordinator(worker.instanceId)
+            val generation = worker.generation
+            handler.postDelayed({
+                if (worker.generation == generation && worker.running.get() && worker.restartRequested) {
+                    worker.notificationText = "Recovery blocked — open app to check"
+                    updateNotification()
+                }
+            }, 120_000L)
+        }
     }
 
     private fun anyRunning(): Boolean = workers.values.any { it.running.get() || it.recoveryPending }
@@ -334,6 +425,7 @@ internal class CordnService : Service() {
     companion object {
         const val ACTION_RESTART = "com.toddsmith456.cordn.coordinator.SCHEDULED_RESTART"
         const val ACTION_STOP = "org.cordn.coordinator.STOP"
+        const val ACTION_BOOT_RESUME = "org.cordn.coordinator.BOOT_RESUME"
         const val EXTRA_CONFIG = "config"
         const val EXTRA_PRIVATE_KEY = "privateKey"
         const val EXTRA_INSTANCE_ID = "instanceId"

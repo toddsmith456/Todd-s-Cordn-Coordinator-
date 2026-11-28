@@ -55,6 +55,9 @@ impl MessageSink for StreamWriter {
     fn is_active(&self) -> bool {
         self.0.is_active()
     }
+    async fn closed(&self) {
+        self.0.closed().await;
+    }
     async fn close(&self) {
         let _ = self.0.close().await;
     }

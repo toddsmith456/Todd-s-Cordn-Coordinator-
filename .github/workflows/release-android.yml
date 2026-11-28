@@ -149,6 +149,8 @@ jobs:
           path: apps/cordn-coordinator/cordn-coordinator-*-android-${{ matrix.abi }}.apk
 
   release:
+    # Beta builds are distributed as Actions artifacts only, not public releases.
+    if: ${{ !contains(github.ref_name, '-beta.') }}
     needs: [android]
     runs-on: ubuntu-24.04
     permissions:
